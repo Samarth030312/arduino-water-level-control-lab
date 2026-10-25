@@ -67,7 +67,7 @@ Check: empty tank reads ~0 %, a ruler-measured level matches the reading within 
 
 ## 5. Bring-up order
 
-1. Upload: `scripts/setup/upload level /dev/ttyACM0`. Serial Monitor 115200: `$HELLO` then `$LTEL`.
+1. Upload: `scripts/setup/upload /dev/ttyACM0`. Serial Monitor 115200: `$HELLO` then `$LTEL`.
 2. Pump disconnected: `$CFG,1,ONOFF,30,80,50,20,0.5` and `$RUN,1`; the relay clicks on when the
    reading is below 30 %. Check whether your relay module is active-LOW (default) or active-HIGH
    (rebuild with `-DRELAY_ACTIVE_LOW=0`).
