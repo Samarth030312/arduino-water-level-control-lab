@@ -512,7 +512,7 @@ function app = missionControl(D)
         if ~isempty(T) && height(T) > 0
             set(tr.yH, 'XData', T.t_s, 'YData', T.meas); set(tr.uH, 'XData', T.t_s, 'YData', T.u_pct);
             poseAt('live', T.t_s(end)); autoAxes(); fillTable();
-            drawnow limitrate; link.poll();             % render now, then PING again: a slow frame never starves the 1 s watchdog
+            drawnow limitrate; link.poll();             % render now, then PING again: a slow frame never starves the 3 s watchdog
             if T.t_s(end) >= hw.tEnd
                 try, link.stop(); catch, end
                 endRun('', 'FINISHED'); say('Run finished and saved under RUNS.', 'ok'); return;
