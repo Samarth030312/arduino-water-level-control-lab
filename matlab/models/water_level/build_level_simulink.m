@@ -18,6 +18,8 @@ function mdl = build_level_simulink(outDir)
     new_system(mdl); cl = onCleanup(@() close_system(mdl, 0));
     set_param(mdl, 'Solver', 'ode45', 'RelTol', '1e-6', 'MaxStep', '0.05', 'StopTime', 'Tend', ...
         'SaveOutput', 'on', 'SaveFormat', 'Dataset');
+    % parameters first: a block's expression (R, J, ...) must never resolve to a variable of the same name in the base workspace
+    setVars(mdl, level_simulink_params(levellab.level.defaultConfig()));
     B = @(lib, n, pos, varargin) add_block(lib, [mdl '/' n], 'Position', pos, varargin{:});
     % ------------------------------------------------ tank
     B('simulink/Math Operations/Sum', 'Net flow', [620 40 640 80], 'Inputs', '+-');
@@ -77,7 +79,6 @@ function mdl = build_level_simulink(outDir)
     n.Text = ['Water level (Assignment 3). modeSel 1: ON-OFF with the Relay block (pump off at Lmax, on at Lmin); ' ...
               '2: PI / P (Ki = 0). Tank and pump parameters ASSUMED. Set them with run_level_simulink(cfg).'];
     n.Position = [40 260 900 290];
-    setVars(mdl, level_simulink_params(levellab.level.defaultConfig()));
     if ~exist(outDir, 'dir'), mkdir(outDir); end
     save_system(mdl, fullfile(outDir, [mdl '.slx']));
 end
