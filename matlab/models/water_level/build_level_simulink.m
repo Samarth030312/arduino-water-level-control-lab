@@ -38,10 +38,13 @@ function mdl = build_level_simulink(outDir)
     B('simulink/Discrete/Zero-Order Hold', 'Ping 100 ms', [880 45 910 75], 'SampleTime', 'Ts');
     B('simulink/Discontinuities/Quantizer', 'Sensor resolution', [940 45 980 75], 'QuantizationInterval', 'resPct');
     % ------------------------------------------------ controllers
-    % Relay switches at >= / <=; the firmware uses > Lmax / < Lmin. The 1e-9 offsets make
-    % the block match the firmware exactly on the sensor's quantised levels.
-    B('simulink/Discontinuities/Relay', 'ON-OFF relay', [140 60 180 100], 'OnSwitchValue', 'Lmax+1e-9', ...
-        'OffSwitchValue', 'Lmin-1e-9', 'OnOutputValue', '0', 'OffOutputValue', '1');
+    % The Relay block starts in its off state, as the firmware starts with the pump off: it
+    % sees -level, so it switches on at -level >= -Lmin (level < Lmin) and off at
+    % -level <= -Lmax (level > Lmax). The 1e-9 offsets make the block match the firmware's
+    % strict < and > exactly on the sensor's quantised levels.
+    B('simulink/Math Operations/Gain', 'level to relay', [100 70 125 90], 'Gain', '-1');
+    B('simulink/Discontinuities/Relay', 'ON-OFF relay', [140 60 180 100], 'OnSwitchValue', '-Lmin+1e-9', ...
+        'OffSwitchValue', '-Lmax-1e-9', 'OnOutputValue', '1', 'OffOutputValue', '0');
     B('simulink/Math Operations/Gain', 'relay to flow', [220 65 270 95], 'Gain', 'Qmax');
     B('simulink/Sources/Constant', 'Setpoint', [40 160 80 180], 'Value', 'SP');
     B('simulink/Math Operations/Sum', 'Error', [120 150 140 190], 'Inputs', '+-');
@@ -67,7 +70,7 @@ function mdl = build_level_simulink(outDir)
     L('Outflow model/1', 'outflow/1'); L('Drain opened/1', 'outflow/2'); L('outflow/1', 'Net flow/2');
     L('h (m)/1', 'to percent/1'); L('to percent/1', 'Ping 100 ms/1'); L('Ping 100 ms/1', 'Sensor resolution/1');
     L('to percent/1', 'level_true_pct/1'); L('Sensor resolution/1', 'level_measured_pct/1');
-    L('Sensor resolution/1', 'ON-OFF relay/1'); L('ON-OFF relay/1', 'relay to flow/1');
+    L('Sensor resolution/1', 'level to relay/1'); L('level to relay/1', 'ON-OFF relay/1'); L('ON-OFF relay/1', 'relay to flow/1');
     L('Setpoint/1', 'Error/1'); L('Sensor resolution/1', 'Error/2'); L('Error/1', 'PI/1');
     L('PI/1', 'round/1'); L('round/1', 'duty/1'); L('duty/1', 'minus dead zone/1');
     L('minus dead zone/1', 'no reverse flow/1'); L('no reverse flow/1', 'PWM to flow/1');
