@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- The lab rig: a 15 L jar filled from a 500 L tank by a 0.5 HP-class mains pump switched by a
+  Fotek SSR-40DA; the defaults, the wiring, the safety rules and the checklist describe it.
+- Firmware: build options PUMP_PWM (0: on-off actuator, default; 1: DC pump on a MOSFET) and
+  RELAY_ACTIVE_LOW (default 0: SSR, active HIGH); P and PI refused on an on-off actuator; minimum
+  on and off times (3 s, 15 s); no-filling guard in cm per window; run-time guard; overflow also
+  within 4 cm of the sensor; calibration kept in EEPROM, `$ZERO` (empty tank) and RUN refused until
+  calibrated; `$GRD` sets the guards; AVR watchdog.
+- App: pump wiring choice (sets the build), the run check refuses what the wiring cannot do, every
+  command acknowledged, a run the firmware stopped ends at once; the simulator mirrors the new guards
+  and spills at the rim.
+
 ## 1.0.0 (2026-10-25): first public release
 
 The Arduino water level control lab, released on its own: the Arduino firmware with its safety cut-offs, the

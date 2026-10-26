@@ -38,8 +38,8 @@ function app = water_level_lab()
     D.scene = @(ax) levellab.ui.waterRig(ax);
     D.pose = @pose;
     D.cfg = @(v) {v.mode, v.Lmin, v.Lmax, v.setpoint, v.Kp, v.Ki};
-    D.preRun = @(link, v) link.send('CAL', 100 * v.h_sensor, 100 * v.tank_H, v.T_air);
-    D.defines = @(v) {};
+    D.preRun = @(link, v) preRun(link, v);
+    D.defines = @defines;
     D.fromTel = @fromTel;
     D.simulink = @openSimulink;
     app = levellab.ui.missionControl(D);
@@ -50,8 +50,8 @@ function C = controls()
     C = struct('key', {}, 'label', {}, 'section', {}, 'type', {}, 'lims', {}, 'fmt', {}, 'items', {}, ...
                'data', {}, 'default', {}, 'show', {}, 'tip', {});
     isMode = @(varargin) @(v) any(strcmp(v.mode, varargin));
-    C(end + 1) = d('mode', 'law', 'CONTROLLER', {'open loop (fixed pump)', 'on-off (relay, Lmin / Lmax)', 'P (PWM pump)', 'PI (PWM pump)'}, ...
-        {'OL', 'ONOFF', 'P', 'PI'}, 'ONOFF', [], 'On-off runs the pump through the relay; P and PI need the MOSFET (PWM) wiring');
+    C(end + 1) = d('mode', 'law', 'CONTROLLER', {'open loop (fixed pump)', 'on-off (Lmin / Lmax)', 'P (PWM pump)', 'PI (PWM pump)'}, ...
+        {'OL', 'ONOFF', 'P', 'PI'}, 'ONOFF', [], 'On-off works with every pump wiring; P and PI need a DC pump on a MOSFET (PWM) on the rig, any pump in simulation');
     C(end + 1) = n('Lmin', 'Lmin: pump ON below (%)', 'CONTROLLER', [0 100], '%.0f', 30, isMode('ONOFF'), 'Course: 30 %');
     C(end + 1) = n('Lmax', 'Lmax: pump OFF above (%)', 'CONTROLLER', [0 100], '%.0f', 80, isMode('ONOFF'), 'Course: 80 %');
     C(end + 1) = n('setpoint', 'setpoint (%)', 'CONTROLLER', [0 100], '%.0f', 50, isMode('P', 'PI'), 'The firmware caps it 5 % under its overflow guard');
@@ -69,18 +69,20 @@ function C = controls()
     C(end + 1) = n('valve2', 'outlet valve after (%)', 'DISTURBANCE', [0 300], '%.0f', 100, [], 'Opening after the change, % of the bore');
     C(end + 1) = n('tDrain', 'valve changes at t (s)', 'DISTURBANCE', [0 7200], '%.0f', 600, [], '');
     S = 'TANK · OUTLET · PUMP · SENSOR  (→ physics)';
-    C(end + 1) = n('tank_L', 'tank length (m)', S, [0.02 2], '%.3f', 0.15, [], 'Inside dimensions (ASSUMED until measured)');
-    C(end + 1) = n('tank_W', 'tank width (m)', S, [0.02 2], '%.3f', 0.15, [], '');
-    C(end + 1) = n('tank_H', 'tank height = 100 % (m)', S, [0.05 2], '%.3f', 0.25, [], '');
-    C(end + 1) = n('h_sensor', 'sensor above the floor (m)', S, [0.05 3], '%.3f', 0.30, [], 'HC-SR04 face to the tank floor');
-    C(end + 1) = n('d_out', 'outlet bore (mm)', S, [0.5 50], '%.1f', 7.7, [], '');
+    C(end + 1) = d('pump_kind', 'pump wiring', S, {'mains AC pump · SSR (on-off)', 'pump · relay module, active LOW (on-off)', 'DC pump · MOSFET (PWM: P, PI)'}, ...
+        {'ssr', 'relay', 'pwm'}, 'ssr', [], 'Sets the firmware build at FLASH; on the rig, P and PI need the PWM wiring');
+    C(end + 1) = n('tank_L', 'tank length (m)', S, [0.02 2], '%.3f', 0.24, [], 'Inside dimensions: 15 L jar ESTIMATED until measured');
+    C(end + 1) = n('tank_W', 'tank width (m)', S, [0.02 2], '%.3f', 0.24, [], '');
+    C(end + 1) = n('tank_H', 'tank height = 100 % (m)', S, [0.05 2], '%.3f', 0.26, [], 'Water depth you call 100 %: keep it 3 cm or more under the rim');
+    C(end + 1) = n('h_sensor', 'sensor above the floor (m)', S, [0.05 3], '%.3f', 0.32, [], 'HC-SR04 face to the tank floor ($ZERO measures it)');
+    C(end + 1) = n('d_out', 'outlet bore (mm)', S, [0.5 50], '%.1f', 8, [], 'The drain hole back to the reservoir');
     C(end + 1) = n('Cd', 'discharge coefficient Cd', S, [0.3 1], '%.2f', 0.6, [], '~0.6 sharp hole, ~0.8 short tube');
     C(end + 1) = n('valve', 'outlet valve opening (%)', S, [0 100], '%.0f', 100, [], 'Scales the outlet area');
-    C(end + 1) = n('Q_max', 'pump flow at zero head (L/min)', S, [0.1 50], '%.2f', 4, [], 'From the pump label (ASSUMED 4)');
-    C(end + 1) = n('H_max', 'pump shut-off head (m)', S, [0.1 50], '%.2f', 3, [], 'Flow falls linearly to zero at this head');
+    C(end + 1) = n('Q_max', 'pump flow at zero head (L/min)', S, [0.1 200], '%.2f', 25, [], 'From the pump label; 0.5 HP class ESTIMATED 25 (measure: S3-3)');
+    C(end + 1) = n('H_max', 'pump shut-off head (m)', S, [0.1 80], '%.2f', 25, [], 'Flow falls linearly to zero at this head');
     C(end + 1) = n('h_lift', 'lift: sump to tank floor (m)', S, [0 3], '%.2f', 0.05, [], '');
     C(end + 1) = n('pwm_dead', 'pump dead zone (% PWM)', S, [0 90], '%.0f', 20, [], 'No flow below this duty');
-    C(end + 1) = n('delay', 'relay + pipe delay (s)', S, [0 20], '%.1f', 1, [], '');
+    C(end + 1) = n('delay', 'relay + pipe delay (s)', S, [0 20], '%.1f', 1.5, [], 'Switching to water arriving: priming, pipe filling');
     C(end + 1) = n('T_air', 'air temperature (°C)', S, [-10 50], '%.0f', 20, [], 'Speed of sound for the HC-SR04 (sent to the firmware)');
 
     function c = n(key, label, sec, lims, fmt, def, show, tip)
@@ -90,6 +92,25 @@ function C = controls()
     function c = d(key, label, sec, items, data, def, show, tip)
         c = struct('key', key, 'label', label, 'section', sec, 'type', 'drop', 'lims', [], 'fmt', '', ...
                    'items', {items}, 'data', {data}, 'default', def, 'show', show, 'tip', tip);
+    end
+end
+
+function preRun(link, v)
+    % what the firmware cannot do on this wiring would run something else under its name
+    if ~strcmp(v.pump_kind, 'pwm') && any(strcmp(v.mode, {'P', 'PI'}))
+        error('P and PI need a DC pump on a MOSFET (pump wiring: PWM); with an SSR or relay the rig runs on-off only (simulate P and PI)');
+    end
+    if strcmp(v.guards, 'off'), error('the firmware always has its guards: set them on for the rig'); end
+    if ~link.command('CAL', 100 * v.h_sensor, 100 * v.tank_H, v.T_air)
+        error('the board refused the geometry: sensor height must exceed the 100 %% depth by 4 cm or more');
+    end
+end
+
+function d = defines(v)
+    switch v.pump_kind
+        case 'pwm', d = {'PUMP_PWM=1'};
+        case 'relay', d = {'RELAY_ACTIVE_LOW=1'};
+        otherwise, d = {};
     end
 end
 
@@ -114,7 +135,7 @@ function M = missions()
     add('W6', 'Limits', 'A setpoint near the rim with the outlet half closed; a pump too small for the outflow.', ...
         {'PI at 90 %, outlet 55 %, guards on', struct('mode', 'PI', 'setpoint', 90, 'valve', 55, 'Tend', 900); ...
          'pump 100 %, outlet 55 %, guards off: overflow', struct('mode', 'OL', 'olPct', 100, 'valve', 55, 'guards', 'off', 'h0', 50, 'Tend', 900); ...
-         'on-off 30-80 %, pump 1.5 L/min: Lmax unreachable', struct('mode', 'ONOFF', 'Q_max', 1.5, 'Tend', 1200)});
+         'on-off 30-80 %, pump 2.5 L/min: Lmax unreachable', struct('mode', 'ONOFF', 'Q_max', 2.5, 'Tend', 1200)});
     add('W7', 'Windup', 'The pump saturates while the level climbs to 85 %: with a plain integrator the level overshoots.', ...
         {'PI at 85 %, clamping', struct('mode', 'PI', 'setpoint', 85, 'Kp', 20, 'Ki', 1, 'aw', 'on', 'h0', 5, 'Tend', 900); ...
          'PI at 85 %, plain integrator', struct('mode', 'PI', 'setpoint', 85, 'Kp', 20, 'Ki', 1, 'aw', 'off', 'h0', 5, 'Tend', 900)});
@@ -124,7 +145,7 @@ function M = missions()
     function add(tag, short, brief, pr)
         base = struct('mode', 'ONOFF', 'Lmin', 30, 'Lmax', 80, 'setpoint', 50, 'olPct', 100, 'Kp', 20, 'Ki', 0.5, 'aw', 'on', ...
             'outflow', 'gravity', 'Qout', 1.5, 'guards', 'on', 'h0', 10, 'Tend', 900, 'valve2', 100, 'tDrain', 600, ...
-            'valve', 100, 'Q_max', 4);
+            'valve', 100, 'Q_max', 25);
         for i = 1:size(pr, 1)
             sv = base; f = fieldnames(pr{i, 2});
             for j = 1:numel(f), sv.(f{j}) = pr{i, 2}.(f{j}); end

@@ -8,3 +8,6 @@ tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 echo "== water-level firmware against an emulated tank, pump and HC-SR04"
 g++ -std=c++17 -O1 -w -include algorithm -I"$root/firmware/tests/host_stubs" -o "$root/firmware/tests/levelsim" "$root/firmware/tests/firmware_host_test.cpp"
 "$root/firmware/tests/levelsim" "$root/firmware/tests/fixtures/level_transcript.txt"
+echo "== the same firmware built for a DC pump on a MOSFET (PUMP_PWM=1)"
+g++ -std=c++17 -O1 -w -include algorithm -DPUMP_PWM=1 -I"$root/firmware/tests/host_stubs" -o "$tmp/levelsim_pwm" "$root/firmware/tests/firmware_host_test.cpp"
+"$tmp/levelsim_pwm"

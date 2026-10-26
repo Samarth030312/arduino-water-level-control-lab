@@ -41,18 +41,20 @@ step by step: **[the sequence](docs/SEQUENCE.md)**.
 
 ## What the model says, before the rig
 
-With the default rig (a 15 × 15 × 25 cm tank, a 7.7 mm outlet, a 4 L/min pump; ASSUMED until you
-measure yours):
+With the default rig (a 15 L jar, 24 × 24 cm, an 8 mm drain, a 0.5 HP-class mains pump at
+25 L/min; ESTIMATED until you measure yours; worked out in [first principles](docs/FIRST_PRINCIPLES.md)):
 
-- **The tank regulates itself.** The outflow grows with √h, so a fixed pump command settles at a
-  fixed level: full pump stops at 90–95 %. Linearised at half full, the tank is a first-order lag
-  of about 130 s, and its time constant grows with the level.
-- **On-off between 30 % and 80 % cycles** about every 4 minutes, 12 pump starts an hour; halve
-  the band and the starts per hour climb.
-- **P leaves an offset** (16.6 % for the default gain): the outflow needs a pump command, and P
-  only gives one when there is an error. **PI removes it**, also after the outlet valve opens.
-- **The pump saturates** on the way up to a high setpoint; with a plain integrator the level then
-  overshoots, with clamping it does not.
+- **The jar regulates itself, but the pump overwhelms it.** The drain's outflow grows with √h
+  (2.2 L/min at 30 %, 3.7 L/min at 80 %), so a fixed inflow would settle at h = (q/k)²; the pump
+  delivers six times more, and left on it fills the empty jar to the rim in under a minute. Linearised,
+  the jar is a first-order lag of 4–6.5 minutes, longer the fuller it is.
+- **On-off between 30 % and 80 %** fills in about 22 s and drains in about 2.6 minutes: a cycle of
+  ~3 minutes, 22 pump starts an hour; the level overshoots Lmax by ~4 % (water still in the pipe).
+- **The pump can only be switched**, not throttled: P and PI need a PWM pump. In simulation, P
+  leaves an offset (the drain needs a pump command, and P gives one only with an error), PI removes
+  it, and clamping stops the integrator winding up while the pump is saturated.
+- **The firmware guards the pump and the floor**: overflow, no filling (dry suction), run time,
+  lost sensor, silent host, a hung program, and at most ~200 starts an hour ([wiring](docs/hardware/WIRING.md)).
 
 Rig sessions will be added under [results](results/README.md); every number above will then be
 checked against the rig, as in the [DC servo lab](https://github.com/Samarth030312/rhino-rmcs-2303-dc-servo-control).

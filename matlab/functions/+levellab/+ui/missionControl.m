@@ -485,7 +485,11 @@ function app = missionControl(D)
         stopPlay(); clearReplay(); set([tr.yH tr.uH], 'XData', nan, 'YData', nan);
         try
             if isfield(D, 'preRun') && ~isempty(D.preRun), D.preRun(link, v); end
-            f = D.cfg(v); link.send('CFG', f{:}); link.setpoint(v.(D.spKey)); link.run();
+            f = D.cfg(v);
+            % every command must be acknowledged: a frame can arrive garbled (SerialLink.command)
+            if ~(link.command('CFG', f{:}) && link.setpoint(v.(D.spKey)) && link.run())
+                error('the board did not acknowledge the configuration or RUN, or refused it (see the session log)');
+            end
         catch err
             say(['Could not start: ' err.message], 'warn'); return;
         end
@@ -512,6 +516,16 @@ function app = missionControl(D)
         if ~isempty(T) && height(T) > 0
             set(tr.yH, 'XData', T.t_s, 'YData', T.meas); set(tr.uH, 'XData', T.t_s, 'YData', T.u_pct);
             poseAt('live', T.t_s(end)); autoAxes(); fillTable();
+            % the firmware switched the pump off by itself (a guard): its RUNNING flag is off
+            if height(T) > 20 && bitand(double(T.flags(end)), 1) == 0
+                names = setdiff(levellab.protocol.flagNames(T.flags(end), link.telType), {'RUNNING'}, 'stable');
+                reason = 'stopped by the firmware'; if ~isempty(names), reason = strjoin(lower(names), ', '); end
+                hw.fault = reason; endRun('', ['STOPPED: ' reason]);
+                ui.stateChip.Text = 'FAULT'; ui.stateChip.BackgroundColor = K.red;
+                ui.clear.BackgroundColor = K.amber; ui.clear.FontColor = K.bg;
+                say(sprintf('The firmware switched the pump off: %s. Fix the cause, then CLEAR FAULT.', reason), 'warn');
+                return;
+            end
             drawnow limitrate; link.poll();             % render now, then PING again: a slow frame never starves the 3 s watchdog
             if T.t_s(end) >= hw.tEnd
                 try, link.stop(); catch, end

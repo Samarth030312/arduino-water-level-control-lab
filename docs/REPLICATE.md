@@ -6,9 +6,9 @@
 |---|---|---|
 | Controller | Arduino Uno (a CH340 clone works; Windows needs its driver, see [install](../install/README.md)) | |
 | Sensor | HC-SR04 ultrasonic, mounted square above the water | minimum range about 2 cm: mount it above the full level |
-| Tank | a transparent tank with an outlet at the bottom (15 × 15 × 25 cm in the defaults), a reservoir below it | measure it: every level and flow depends on it |
-| Pump | a small 12 V DC pump (4 L/min in the defaults) with its own supply and fuse | |
-| Switch | a relay module for on-off (most are active-LOW); a logic-level MOSFET for P / PI (PWM) | the firmware drives both (D4, D5) |
+| Tank | a 15 L jar with a drain near the bottom (24 × 24 cm, 100 % = 26 cm in the defaults), filled from a larger reservoir that the drain returns to | measure it: every level and flow depends on it |
+| Pump | the lab's: a 0.5 HP-class 230 V monoblock pump (25 L/min assumed); or a small 12 V DC pump | a mains pump needs an earthed, RCD-protected, fused socket ([wiring](hardware/WIRING.md)) |
+| Switch | a solid-state relay for a mains pump (lab: Fotek SSR-40DA, on-off); a relay module (on-off); a logic-level MOSFET for a DC pump (P, PI by PWM) | chosen in the app's physics panel; it sets the firmware build |
 | Optional | a float switch at the top (D3): hardware overflow stop; a valve on the outlet | |
 | PC | Windows, macOS or Linux, MATLAB R2023b or newer (Simulink optional) | |
 

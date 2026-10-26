@@ -1,74 +1,142 @@
-# Water level control — wiring and electrical guidelines
+# Wiring: a mains pump through an SSR, an HC-SR04, an Arduino Uno
 
-Hardware (course guideline, SRC-001 p.23): Arduino Uno, small tank, DC pump, relay module,
-level sensing (ultrasonic chosen: HC-SR04). Firmware: `firmware/level_controller/`.
-Status: pin plan DECIDED; **not yet wired**. Pump and tank models are not specified by the
-course — record what the lab provides (OI-L1).
+The lab rig: a **500 L tank** (the reservoir) → a **0.5 HP-class single-phase monoblock pump**
+(yellow, Silver brand; nameplate not yet read) → a **15 L jar** (the controlled tank) → a drain
+back into the 500 L tank. The pump is switched by a **Fotek SSR-40DA** solid-state relay (input
+3–32 V DC, load 24–380 V AC, zero-cross), the level is measured by an **HC-SR04** ultrasonic
+sensor above the jar, and an **Arduino Uno** on USB runs the firmware (`firmware/level_controller`,
+built with the defaults: on-off, SSR active-HIGH).
 
-## 1. Pin plan
+> **Mains and water together can kill.** The pump runs on 230 V and stands in a wet place.
+> Its metal body **must be earthed**, the socket **must be protected by a 30 mA RCD (RCCB)**,
+> and nothing on the mains side may be touched while it is plugged in. Have the lab technician
+> check the mains side before the first power-up.
 
-| Arduino Uno | Connects to | Notes |
+```mermaid
+flowchart LR
+    T500["500 L tank"] -->|suction| PUMP["pump 230 V"]
+    PUMP -->|delivery, ends ABOVE the water| JAR["15 L jar"]
+    JAR -->|drain hole / tap| T500
+    US["HC-SR04<br/>above the jar"] -. echo .-> JAR
+    UNO["Arduino Uno<br/>(USB)"] --- US
+    UNO -->|"D4 → SSR input"| SSR["SSR-40DA"]
+    SSR -->|"switches L"| BOX["switched socket<br/>(fuse, earth, RCD)"]
+    BOX --> PUMP
+```
+
+## 1. Low-voltage side (5 V, from the Uno's USB)
+
+| From | To on the Uno | Notes |
 |---|---|---|
-| **D8** | HC-SR04 TRIG | |
-| **D7** | HC-SR04 ECHO | 5 V module: direct |
-| 5 V / GND | HC-SR04 VCC / GND | |
-| **D4** | relay module **IN** | on-off pump control (course). Firmware default: active-LOW module |
-| 5 V / GND | relay module VCC / GND | |
-| **D5** | MOSFET gate via 220 Ω, 10 kΩ gate→GND | only for P / PI (PWM 980 Hz) |
-| **D3** | float switch → GND (optional) | closes at the top: hardware overflow stop |
-| **D12** | START/STOP push-button → GND | standalone use |
+| SSR **3 (+)** | **D4** | D4 HIGH = pump ON. The SSR's input needs ~10 mA at 5 V: fine for a pin. |
+| SSR **4 (−)** | **GND** | any GND pin (not AREF) |
+| HC-SR04 **VCC** | **5V** | |
+| HC-SR04 **GND** | **GND** | |
+| HC-SR04 **TRIG** | **D8** | |
+| HC-SR04 **ECHO** | **D7** | the Uno is 5 V: direct |
+| float switch (optional) | **D3** and GND | closes when water reaches it: a hardware stop independent of the ultrasonic reading |
+| push button (optional) | **D12** and GND | start/stop without MATLAB |
 
-Pick **one** pump path:
+The firmware's other output (D5, PWM) is not used with an SSR.
 
-- **A. Relay (course, on-off only):** pump + to supply + through the relay's COM→NO contact.
-- **B. MOSFET (needed for P / PI):** logic-level N-MOSFET (e.g. IRLZ44N), pump between +12 V and
-  drain, source to GND, **flyback diode (1N5819 or 1N4007) across the pump, cathode to +12 V**.
+## 2. Mains side: a switched socket
 
-In wiring A, the P / PI modes degrade to on/off (any u > 0 closes the relay).
-
-## 2. Diagram
+Do **not** cut into the pump. Build (or have the technician build) a small **switched socket box**:
+the pump's own plug goes into it, so the pump keeps its factory wiring and its earth.
 
 ```
-              +-------------+               HC-SR04 (face down, 30 cm above tank floor)
-   USB -------| Arduino Uno |  D8 ---------> TRIG
-              |             |  D7 <--------- ECHO
-              |             |  5V/GND ------ VCC/GND
-              |             |
-              |          D4 |------> relay IN        A: 12 V + ---- COM  NO ---- pump + 
-              |       5V/GND|------> relay VCC/GND                               pump - ---- 12 V -
-              |             |
-              |          D5 |--220R--> MOSFET G      B: 12 V + ---- pump + ---+--- diode cathode
-              |             |         (10k G->S)        pump - ---- MOSFET D -+--- diode anode
-              |             |                           MOSFET S ---- 12 V - ---- Uno GND
-              |          D3 |---[float switch]---GND
-              |         D12 |---[START/STOP]----GND
-              +-------------+
+ wall socket (RCD 30 mA)                         switched socket box
+   L ──── fuse 6.3 A (T) ──── SSR 1 ~ ║ SSR 2 ~ ──── socket L ─┐
+   N ─────────────────────────────────────────────── socket N  ├── pump's plug
+   E (green/yellow) ──────────────────────────────── socket E ─┘   (pump body earthed)
 ```
 
-Wiring B needs the 12 V supply's 0 V joined to the Uno GND. Wiring A does not (the relay
-isolates), but joining them does no harm.
+- **Live (L) through the SSR**, as on the temperature rig. Neutral and earth go straight through.
+  Find L at the plug's terminal marked **L** (not by colour).
+- **Earth must reach the pump's body**: the earth pin of the socket box, through the pump's own
+  3-pin plug, to the earth screw in its yellow terminal box. Check continuity with a meter: pump
+  body to the plug's earth pin, under 1 Ω.
+- **RCD 30 mA**: plug the box into an RCD-protected socket or a portable RCD adapter. Press its
+  TEST button before each session.
+- **Fuse**: 6.3 A slow-blow (T) in the live line, or a 6 A C-curve MCB. A 0.5 HP pump draws about
+  2.5–4 A running and 5–7 times that for a fraction of a second when it starts.
+- **SSR on a heatsink**: at ~3.5 A the SSR dissipates ~1.5 V × 3.5 A ≈ 5 W; on its own plastic
+  case it overheats. Screw it to an aluminium heatsink (or a 3 mm aluminium plate of at least
+  10 × 10 cm) with thermal paste. After the first runs, touch-test the heatsink (power off): warm
+  is fine, too hot to hold is not.
+- **Surge suppressor (recommended)**: a 275 V AC varistor (MOV, e.g. 14D431K) across SSR terminals
+  1 and 2. A motor is an inductive load; the MOV absorbs switching spikes that shorten an SSR's life.
+- **Rating**: the SSR-40DA is rated 40 A resistive; for motors use at least 4× the running current
+  (met here). Unbranded "Fotek" relays are common and often weaker than marked: the heatsink matters.
+- The SSR leaks up to ~3 mA when off: the pump stays still, but its socket is **not** dead.
+  Unplug before touching anything on the mains side.
+- Keep the box, the SSR, the Uno and the laptop **above and away from the water**, on a board,
+  with drip loops in the cables (they hang below the box before rising into it).
 
-## 3. Power and water rules
+## 3. Plumbing and the jar
 
-- Pump supply: as rated on the pump (typically 6–12 V DC, < 1 A). Fuse it at ~2× the pump's
-  rated current.
-- **Electronics above and away from the tank**, on a tray that cannot be splashed. Drip loops on
-  the cables. Never handle wiring with wet hands.
-- Do not run the pump dry: the firmware stops it if it is commanded near full for 60 s
-  without a 2 % rise, and forces it off above 92 %. Keep the reservoir full anyway.
-- Mount the HC-SR04 at least 2 cm above the highest water level (its minimum range) and away from
-  the tank wall; foam or ripples give false echoes.
+- **Suction**: from the 500 L tank to the pump's inlet. A self-priming pump still needs its
+  casing filled with water before the first start (unscrew the priming plug on top, fill, close).
+  **Never run it dry**: the firmware stops it if the level does not rise (section 6), but a dry
+  pump is damaged within minutes.
+- **Delivery into the jar: end the pipe ABOVE the highest water level.** A pipe ending under
+  water siphons the jar back through the stopped pump into the 500 L tank (monoblock pumps have
+  no check valve). Point the jet at the jar wall, away from the space under the sensor: splashes
+  and foam under the HC-SR04 give false readings.
+- **Drain (outflow)**: the course needs water leaving the jar (cycles, Q_out). Drill a hole of
+  6–10 mm near the bottom, or fit a small tap, with a tube back into the 500 L tank. Measure its
+  diameter: it sets the outflow (`d_out` in the app), and a tap lets you change it (the disturbance).
+- Stand the jar level and stable; a full 15 L jar weighs 15 kg.
 
-## 4. Calibration
+## 4. The levels: minimum and maximum
 
-Measure the sensor face to tank floor distance and the height you call 100 %, then send
-`$CAL,1,<sensor_to_floor_cm>,<full_height_cm>[,<air_C>]` (defaults 30 cm, 25 cm and 20 °C air; the speed of sound is corrected for the air temperature).
-Check: empty tank reads ~0 %, a ruler-measured level matches the reading within 0.5 cm.
+All levels are percentages of the water depth you call 100 %. For a 15 L jar (about 24 × 24 cm
+inside, ~30 cm to the rim: **measure yours**):
 
-## 5. Bring-up order
+| Level | Rule | Why |
+|---|---|---|
+| **rim** | the top of the jar | water above it spills next to mains equipment |
+| **100 %** | **3 cm or more below the rim** | margin for the overshoot and ripples |
+| **sensor face** | **2–4 cm above the rim**, pointing straight down, centred | the HC-SR04 cannot measure closer than ~2 cm; the firmware treats water within 4 cm of the sensor as an overflow |
+| **overflow guard** | **92 %** (firmware; `$GRD` changes it) | the pump is forced off above it, whatever the controller says |
+| **overshoot** | ≈ Q_in × t_delay / A ≈ 417 mL/s × 1.5 s / 576 cm² ≈ **1.1 cm ≈ 4 %** | water still arriving after the pump stops (pipe, run-down): Lmax + 4 % and 92 % + 4 % stay under 100 % |
+| **Lmax** | **80 %** (course) | pump OFF above it |
+| **Lmin** | **30 %** (course) | pump ON below it; keep at least ~3 cm of water so the surface, not the floor, returns the echo, and keep the drain covered |
+| **0 %** | the jar floor | `$ZERO` with the jar empty measures the sensor height |
 
-1. Upload: `scripts/setup/upload /dev/ttyACM0`. Serial Monitor 115200: `$HELLO` then `$LTEL`.
-2. Pump disconnected: `$CFG,1,ONOFF,30,80,50,20,0.5` and `$RUN,1`; the relay clicks on when the
-   reading is below 30 %. Check whether your relay module is active-LOW (default) or active-HIGH
-   (rebuild with `-DRELAY_ACTIVE_LOW=0`).
-3. Connect the pump; run W2 (on-off) from `setup water`.
+The HC-SR04's cone (about ±15°) widens to ~16 cm across at 30 cm: keep its view of the water clear
+of the jar's neck, the inlet pipe and the jar walls (mount it centred over the widest part).
+
+## 5. Bring-up, in this order
+
+1. **Low voltage only, pump unplugged.** In the app: pump wiring *mains AC pump · SSR*, FLASH
+   FIRMWARE, CONNECT. The level appears.
+2. **Measure and enter the geometry** in the app's physics panel: jar inside length and width,
+   sensor face to jar floor (`h_sensor`), the depth you call 100 % (`tank_H`), the drain bore.
+   The app sends them to the board at each run. (In the Serial Monitor, `$ZERO,1` with the jar
+   empty measures the sensor height.)
+3. **Check the reading**: pour in water to a ruler-measured depth at three levels; the app's level
+   must match within ~0.5 cm (the full calibration: five levels and a fitted line).
+4. **SSR without the pump**: on-off run with Lmin above the current level: the SSR's LED lights;
+   STOP: it goes out.
+5. **Mains side checked** by the technician (section 2), the casing primed (section 3), the drain open.
+6. **First pump run, a person at the wall switch**: on-off 30–80 %, watch one full cycle. Be ready
+   to switch off at the wall if the level passes 90 %.
+
+## 6. What the firmware does by itself
+
+| Guard | Default | Action |
+|---|---|---|
+| overflow | level > 92 %, water within 4 cm of the sensor, or the float switch closed | pump off at once |
+| no filling | pump on, level rises less than 1 cm in 20 s | pump off, latched (dry suction, empty reservoir, blocked or broken pipe) |
+| run time | pump on 180 s without reaching Lmax | pump off, latched (drain too big, leak, sensor fault) |
+| sensor | 5 failed pings in a row | pump off, latched |
+| host | MATLAB silent for 3 s while it controls | pump off |
+| program hang | the AVR watchdog resets the Uno after 2 s | after any reset D4 is LOW: pump off |
+| motor | at least 3 s on and 15 s off between switchings | anti short-cycling: at most ~200 starts an hour even with a 0 % band |
+| not calibrated | geometry never set | RUN refused |
+
+A latched fault stays until STOP (CLEAR FAULT in the app). P and PI are refused with an SSR: an
+induction motor behind a zero-cross SSR cannot be speed-controlled (it switches only whole mains
+half-cycles, and a motor fed that way hums, heats and loses torque). They remain available in
+simulation, and on the rig with a DC pump on a MOSFET (build `PUMP_PWM=1`).

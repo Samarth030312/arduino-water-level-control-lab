@@ -15,8 +15,12 @@ function S = simulate(c)
 %   PUMP CURVE: flow x max(0, 1 - (h_lift + h) / H_max) when P.H_max is finite (less flow against head)
 %   OVERFLOW: water above the rim spills (S.spill, litres); c.guards = false switches the
 %   firmware's guards off in simulation, to show what they prevent
-%   GUARDS (as the firmware): pump off above L_over; latched off if commanded
-%   near full (u >= 200) for t_dry without a 2 % rise (dry run / empty supply).
+%   OVERFLOW over the rim, P.H_rim above the floor (P.H is the depth called 100 %).
+%   GUARDS (as the firmware level_controller): pump off above L_over or within 4 cm of the
+%   sensor; latched off if, while the pump is on (PWM: u >= 200 and well below the target),
+%   the level rises less than rise_cm (1 cm) over each t_dry (20 s) window; ON-OFF: latched
+%   off after t_maxon (180 s) of continuous running. An on-off pump (c.pump_kind 'ssr' or
+%   'relay') keeps each state at least 3 s (on) and 15 s (off).
 
     P = c.P; dt = 0.01; Ts = P.Ts;
     N = round(c.Tend / dt) + 1; nTs = round(Ts / dt); nDel = max(1, round(P.delay / dt));
@@ -26,7 +30,9 @@ function S = simulate(c)
 
     h = c.h0 / 100 * P.H; q = 0; cmdBuf = zeros(nDel, 1); dp = 1;
     pumpOn = false; u = 0; I = 0; lvl = c.h0; starts = 0; lastOn = false;
-    fullSince = NaN; lvlAtFull = 0; dryLatched = false;
+    fullSince = NaN; lvlAtFull = 0; dryLatched = false; onSince = -inf; offSince = -inf;
+    onoffPump = ~strcmp(getf(c, 'pump_kind', 'ssr'), 'pwm');
+    Hrim = getf(P, 'H_rim', P.H + 0.03); riseCm = getf(P, 'rise_cm', 1); tMaxOn = getf(P, 't_maxon', 180);
     guards = getf(c, 'guards', true); olPct = getf(c, 'olPct', 100); spill = 0;
     Hmax = getf(P, 'H_max', Inf); hLift = getf(P, 'h_lift', 0); spillL = nan(M, 1);
     guard = ''; m = 0;
@@ -56,21 +62,35 @@ function S = simulate(c)
                     u = round(255 * olPct / 100);
                 otherwise, error('levellab:level:mode', 'unknown mode %s', c.mode);
             end
-            if guards && lvl > P.L_over, u = 0; pumpOn = false; guard = 'OVERFLOW'; end
+            if dryLatched, u = 0; pumpOn = false; end              % a latched trip: off until STOP
+            % an on-off pump keeps each state for its minimum time (motor; the firmware's rule)
+            if guards && onoffPump && strcmp(c.mode, 'ONOFF')
+                if lastOn && u == 0 && t - onSince < 3, u = 255; pumpOn = true; end
+                if ~lastOn && u > 0 && t - offSince < 15, u = 0; pumpOn = false; end
+            end
+            if guards && (lvl > P.L_over || P.h_sensor - (lvl / 100 * P.H) < 0.04), u = 0; pumpOn = false; guard = 'OVERFLOW'; end
             on = u > 0;
-            if on && ~lastOn, starts = starts + 1; end
+            if on && ~lastOn, starts = starts + 1; onSince = t; end
+            if ~on && lastOn, offSince = t; end
             lastOn = on;
-            % dry-run guard: commanded near full for t_dry with < 2 % rise while well below the
-            % target => no water reaching the tank (same rule as the firmware)
+            % no filling: with the pump on, the level must rise rise_cm over each t_dry window
             target = c.setpoint; if strcmp(c.mode, 'ONOFF'), target = c.Lmax; end
             if strcmp(c.mode, 'OL'), target = 100; end
-            if guards && u >= 200 && lvl < target - 5      % below target: a balanced PI at full pump is not dry
+            fullOn = on; if ~strcmp(c.mode, 'ONOFF'), fullOn = u >= 200 && lvl < target - 5; end
+            if guards && fullOn && ~dryLatched
                 if isnan(fullSince), fullSince = t; lvlAtFull = lvl; end
-                if t - fullSince > P.t_dry && lvl - lvlAtFull < 2
-                    u = 0; pumpOn = false; guard = 'DRY-RUN'; dryLatched = true;
+                if t - fullSince >= P.t_dry
+                    if (lvl - lvlAtFull) / 100 * P.H * 100 < riseCm
+                        u = 0; pumpOn = false; guard = 'DRY-RUN'; dryLatched = true;
+                    else
+                        fullSince = t; lvlAtFull = lvl;
+                    end
                 end
             else
                 fullSince = NaN;
+            end
+            if guards && ~dryLatched && strcmp(c.mode, 'ONOFF') && on && t - onSince > tMaxOn
+                u = 0; pumpOn = false; guard = 'RUN-TIME'; dryLatched = true;
             end
             if dryLatched, u = 0; end
         end
@@ -85,7 +105,7 @@ function S = simulate(c)
         if strcmp(c.outflow, 'constant'), qo = c.Qout / 60000 * dFac * (h > 0);
         else, qo = P.k_out * dFac * sqrt(max(h, 0)); end
         h = max(h + dt / P.A * (q - qo), 0);
-        if h > P.H, spill = spill + (h - P.H) * P.A; h = P.H; end                  % over the rim
+        if h > Hrim, spill = spill + (h - Hrim) * P.A; h = Hrim; end              % over the rim
         if mod(k - 1, dec) == 0
             m = m + 1;
             tt(m) = t; hl(m) = 100 * h / P.H; lml(m) = lvl; ul(m) = u;

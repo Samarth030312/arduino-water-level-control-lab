@@ -1,53 +1,92 @@
-// Arduino water level control lab: tank, DC pump, HC-SR04, relay
-// Arduino Uno + HC-SR04 ultrasonic sensor + 12 V DC pump via relay module (on-off)
-// or logic-level MOSFET (PWM, for P / PI).
+// Arduino water level control lab: tank, pump, HC-SR04 ultrasonic level sensor
 //
-// Course tasks (SRC-001 p.23): ON-OFF control, pump ON below Lmin, OFF above Lmax;
-// record fill time and switching frequency. Telemetry: protocol v1 ($LTEL).
+// Two pump wirings, chosen at build time:
+//   PUMP_PWM = 0 (default)  ON-OFF actuator on D4: a solid-state relay (e.g. Fotek SSR-40DA)
+//                           switching a mains AC pump, or a relay module. ON-OFF only: an
+//                           induction motor behind a zero-cross SSR cannot be speed-controlled.
+//   PUMP_PWM = 1            a DC pump on a logic-level MOSFET on D5 (PWM 980 Hz): P and PI too.
+// RELAY_ACTIVE_LOW = 0 (default): D4 HIGH switches the pump on (an SSR's input, "high-level
+// trigger" relay modules). Set 1 for the common active-LOW opto relay modules.
+//
+// Control (ON-OFF): pump ON below Lmin, OFF above Lmax (levels in % of the calibrated height).
+// Telemetry: protocol v1 ($LTEL). Commands: CFG, SET, RUN, STOP, CAL, ZERO, GRD, PING.
 //
 // PINS (docs/hardware/WIRING.md)
 //   D8   HC-SR04 TRIG          D7   HC-SR04 ECHO
-//   D4   relay module IN (pump on/off)         RELAY_ACTIVE_LOW = 1 for the common
-//                                              blue opto-isolated modules: CHECK yours
-//   D5   MOSFET gate via 220 ohm (PWM 980 Hz)  only for P / PI wiring
-//   D3   optional Lmax float switch to GND (closed = water at the top): hard overflow stop
+//   D4   pump on/off: SSR input + (SSR input - to GND), or relay module IN
+//   D5   MOSFET gate via 220 ohm (PWM)  only with PUMP_PWM = 1
+//   D3   optional float switch to GND (closed = water at the top): hard overflow stop
 //   D12  START / STOP pushbutton to GND
 //
-// Geometry: the sensor face is SENSOR_TO_FLOOR_CM above the tank floor and 100 % is
-// FULL_HEIGHT_CM. Change with  $CAL,1,<sensor_to_floor_cm>,<full_height_cm>[,<air_C>]
-// Speed of sound v = 331.3 + 0.606 T m/s (air temperature T, default 20 C -> 343.4 m/s);
-// level = sensor_to_floor - v * echo_time / 2 (WATER handout S3-1).
+// Geometry: the sensor face is sensorToFloor cm above the tank floor; 100 % is fullHeight cm
+// of water. level = sensorToFloor - d, with d = v t / 2 and v = 331.3 + 0.606 T m/s (air T).
+// $ZERO,1 with the tank empty measures sensorToFloor; $CAL,1,<sensor_to_floor>,<full_height>
+// [,<air_C>] sets it explicitly. Both are kept in EEPROM. RUN is refused until calibrated.
 //
-// GUARDS: pump off above 92 %; latched off after 60 s at >= 200/255 without a 2 %
-// rise while the level is more than 5 % below its target (Lmax for ON-OFF, the setpoint for
-// P/PI) - dry run / empty reservoir / blocked pipe. The target condition keeps a PI that holds
-// the level with the pump near full speed (big outflow) from tripping. Off after 5 failed
-// pings; off if MATLAB goes silent for 3 s while it is in control.
+// GUARDS (pump forced off)
+//   overflow     level > L_over (92 %), or the water closer than 4 cm to the sensor (its dead
+//                zone), or the float switch closed
+//   no filling   the pump has run t_dry s (20) and the level rose less than rise_cm (1.0): dry
+//                suction, empty reservoir, blocked or broken pipe -> latched
+//   run time     ON-OFF: the pump has run t_maxon s (180) without reaching Lmax -> latched
+//   sensor       5 failed pings in a row -> latched
+//   host         MATLAB silent for 3 s while it is in control
+//   hang         the AVR watchdog resets a stuck program (2 s); after any reset D4 is LOW: off
+// MOTOR (ON-OFF wiring): at least 3 s on and 15 s off between switchings (anti
+// short-cycling: an induction motor and its relay take the starting current every start); the
+// overflow and fault guards override it.
+// $GRD,1,<t_dry_s>,<rise_cm>,<t_maxon_s>,<L_over_%> changes the guards.
 //
-// STATUS: runs on the PC against an emulated tank + HC-SR04 (firmware/tests); NOT yet run on hardware.
+// STATUS: runs on the PC against an emulated tank + HC-SR04 (firmware/tests).
 
 #define FW_NAME "water_level_lab"
 #ifndef FW_REV
 #define FW_REV "dev"
 #endif
 #ifndef RELAY_ACTIVE_LOW
-#define RELAY_ACTIVE_LOW 1
+#define RELAY_ACTIVE_LOW 0
+#endif
+#ifndef PUMP_PWM
+#define PUMP_PWM 0
+#endif
+#ifdef __AVR__
+#include <avr/wdt.h>
+#include <EEPROM.h>
 #endif
 
 const uint8_t PIN_TRIG = 8, PIN_ECHO = 7, PIN_RELAY = 4, PIN_PWM = 5, PIN_FLOAT = 3, PIN_BTN = 12;
 const uint16_t TS_MS = 100;
-const float L_OVER = 92.0f, DRY_RISE = 2.0f;
-const uint32_t DRY_MS = 60000;
-const uint8_t F_RUNNING = 1, F_SENSOR = 2, F_OVERFLOW = 4, F_DRY = 8, F_WATCHDOG = 16, F_BUTTON = 32;
+const float D_MIN_CM = 4.0f;                              // HC-SR04 dead zone ~2 cm + margin
+const uint32_t MIN_ON_MS = 3000, MIN_OFF_MS = 15000;      // motor anti short-cycling (ON-OFF wiring): <= ~200 starts/h
+const uint8_t F_RUNNING = 1, F_SENSOR = 2, F_OVERFLOW = 4, F_DRY = 8, F_WATCHDOG = 16, F_BUTTON = 32, F_TIMEOUT = 64;
+struct Guards { float tDry = 20, riseCm = 1.0f, tMaxOn = 180, Lover = 92; } grd;
 
 enum Mode : uint8_t { ONOFF, PCTRL, PICTRL };
 const char *MODE_NAMES[] = {"ONOFF", "P", "PI"};
 struct Config { Mode mode = ONOFF; float Lmin = 30, Lmax = 80, setpoint = 50, Kp = 20, Ki = 0.5f; } cfg;
 float sensorToFloor = 30.0f, fullHeight = 25.0f, airC = 20.0f;
+bool calibrated = false;
+struct CalStore { uint16_t magic; float s2f, full, air; };
+const uint16_t CAL_MAGIC = 0x57A1;
+static void saveCal() {
+#ifdef __AVR__
+  CalStore c = {CAL_MAGIC, sensorToFloor, fullHeight, airC}; EEPROM.put(0, c);
+#endif
+  calibrated = true;
+}
+static void loadCal() {
+#ifdef __AVR__
+  CalStore c; EEPROM.get(0, c);
+  if (c.magic == CAL_MAGIC && c.s2f > 5 && c.s2f < 400 && c.full > 1 && c.full < c.s2f) {
+    sensorToFloor = c.s2f; fullHeight = c.full; airC = c.air; calibrated = true;
+  }
+#endif
+}
 
 bool running = false, hostControlled = false, pumpOn = false;
 uint8_t flags = 0, badPings = 0; uint32_t seq = 0, tStart = 0, lastTs = 0, lastHost = 0, fullSince = 0;
-float level = NAN, levelCm = NAN, levelAtFull = 0, integ = 0; int u = 0;
+uint32_t pumpSince = 0, dryWin = 0;                        // when the pump last switched; dry-run window start
+float level = NAN, levelCm = NAN, dist = NAN, levelAtFull = 0, levelAtWin = 0, integ = 0; int u = 0;
 
 static char hexDigit(uint8_t v) { return v < 10 ? '0' + v : 'A' + v - 10; }
 static int8_t hexVal(char c) { if (c >= '0' && c <= '9') return c - '0'; if (c >= 'A' && c <= 'F') return c - 'A' + 10; if (c >= 'a' && c <= 'f') return c - 'a' + 10; return -1; }
@@ -61,9 +100,16 @@ static void ack(const char *t) { char b[24]; snprintf(b, sizeof(b), "ACK,1,%s", 
 static void err(const char *t, int code, const char *txt) { char b[64]; snprintf(b, sizeof(b), "ERR,1,%s,%d,%s", t, code, txt); sendFrame(b); }
 
 static void pump(int duty) {
-  u = constrain(duty, 0, 255); pumpOn = u > 0;
-  digitalWrite(PIN_RELAY, (pumpOn ^ RELAY_ACTIVE_LOW) ? HIGH : LOW);
+  u = constrain(duty, 0, 255);
+  bool on = u > 0;
+  if (on != pumpOn) pumpSince = millis();
+  pumpOn = on;
+#if PUMP_PWM
   analogWrite(PIN_PWM, u);
+  digitalWrite(PIN_RELAY, RELAY_ACTIVE_LOW ? HIGH : LOW);   // relay output unused: held off
+#else
+  digitalWrite(PIN_RELAY, (pumpOn ^ RELAY_ACTIVE_LOW) ? HIGH : LOW);
+#endif
 }
 static void stopAll() { running = false; pump(0); integ = 0; }
 
@@ -85,6 +131,13 @@ static float medianOf3() {
   return max(min(a, b), min(max(a, b), c));
 }
 
+static void reportCal() {
+  char a[10], b[10], c[10];
+  dtostrf(sensorToFloor, 1, 1, a); dtostrf(fullHeight, 1, 1, b); dtostrf(airC, 1, 1, c);
+  Serial.print("# cal sensor_to_floor_cm="); Serial.print(a); Serial.print(" full_height_cm="); Serial.print(b);
+  Serial.print(" air_C="); Serial.println(c);
+}
+
 // ------------------------------------------------------------------ protocol
 static void handleLine(char *line) {
   if (line[0] != '$') return;
@@ -101,22 +154,46 @@ static void handleLine(char *line) {
     if (nt != 8) { err(t, 4, "fields"); return; }
     uint8_t m = 255; for (uint8_t i = 0; i < 3; i++) if (!strcmp(tok[2], MODE_NAMES[i])) m = i;
     if (m == 255) { err(t, 5, "mode"); return; }
-    cfg.mode = (Mode)m; cfg.Lmin = atof(tok[3]); cfg.Lmax = atof(tok[4]); cfg.setpoint = atof(tok[5]);
+#if !PUMP_PWM
+    if (m != ONOFF) { err(t, 8, "on-off pump wiring: P and PI need PUMP_PWM (DC pump on a MOSFET)"); return; }
+#endif
+    float lo = atof(tok[3]), hi = atof(tok[4]);
+    if (!(lo >= 0 && hi > lo)) { err(t, 9, "need 0 <= Lmin < Lmax"); return; }
+    cfg.mode = (Mode)m; cfg.Lmin = lo; cfg.Lmax = hi; cfg.setpoint = atof(tok[5]);
     cfg.Kp = atof(tok[6]); cfg.Ki = atof(tok[7]);
-    if (cfg.Lmax > L_OVER - 2) cfg.Lmax = L_OVER - 2;
-    if (cfg.setpoint > L_OVER - 5) cfg.setpoint = L_OVER - 5;
+    if (cfg.Lmax > grd.Lover - 2) cfg.Lmax = grd.Lover - 2;
+    if (cfg.setpoint > grd.Lover - 5) cfg.setpoint = grd.Lover - 5;
     ack(t); return;
   }
   if (!strcmp(t, "CAL")) {
+    if (running) { err(t, 3, "stop first"); return; }
     if (nt != 4 && nt != 5) { err(t, 4, "fields"); return; }
-    sensorToFloor = atof(tok[2]); fullHeight = atof(tok[3]);
+    float s2f = atof(tok[2]), full = atof(tok[3]);
+    if (!(s2f > 5 && s2f < 400 && full > 1 && full <= s2f - D_MIN_CM)) { err(t, 9, "need 5 < sensor_to_floor < 400, full <= sensor_to_floor - 4"); return; }
+    sensorToFloor = s2f; fullHeight = full;
     if (nt == 5) airC = constrain(atof(tok[4]), -10.0f, 50.0f);
+    saveCal(); reportCal(); ack(t); return;
+  }
+  if (!strcmp(t, "ZERO")) {                         // tank empty: the measured distance is sensor -> floor
+    if (running) { err(t, 3, "stop first"); return; }
+    float d = medianOf3();
+    if (isnan(d) || d < 5) { err(t, 9, "no valid echo"); return; }
+    sensorToFloor = d;
+    if (fullHeight > sensorToFloor - D_MIN_CM) fullHeight = sensorToFloor - D_MIN_CM;
+    saveCal(); reportCal(); ack(t); return;
+  }
+  if (!strcmp(t, "GRD")) {
+    if (running) { err(t, 3, "stop first"); return; }
+    if (nt != 6) { err(t, 4, "fields"); return; }
+    grd.tDry = constrain(atof(tok[2]), 2.0f, 600.0f); grd.riseCm = constrain(atof(tok[3]), 0.1f, 20.0f);
+    grd.tMaxOn = constrain(atof(tok[4]), 5.0f, 3600.0f); grd.Lover = constrain(atof(tok[5]), 50.0f, 98.0f);
     ack(t); return;
   }
-  if (!strcmp(t, "SET")) { if (nt == 3) { cfg.setpoint = min(atof(tok[2]), L_OVER - 5); ack(t); } else err(t, 4, "fields"); return; }
+  if (!strcmp(t, "SET")) { if (nt == 3) { cfg.setpoint = min(atof(tok[2]), grd.Lover - 5); ack(t); } else err(t, 4, "fields"); return; }
   if (!strcmp(t, "RUN")) {
-    if (flags & (F_DRY | F_SENSOR)) { err(t, 6, "fault latched: STOP first"); return; }
-    running = true; hostControlled = true; seq = 0; tStart = millis(); integ = 0; fullSince = 0; ack(t); return;
+    if (flags & (F_DRY | F_SENSOR | F_TIMEOUT)) { err(t, 6, "fault latched: STOP first"); return; }
+    if (!calibrated) { err(t, 12, "not calibrated: $ZERO with the tank empty, or $CAL"); return; }
+    running = true; hostControlled = true; seq = 0; tStart = millis(); integ = 0; fullSince = 0; dryWin = 0; ack(t); return;
   }
   if (!strcmp(t, "STOP") || !strcmp(t, "ESTOP")) { stopAll(); flags = 0; ack(t); return; }
   err(t, 7, "unknown");
@@ -133,10 +210,12 @@ static void pollHost() {
 }
 
 // ------------------------------------------------------------------ control
+static void fault(uint8_t f, int code, const char *txt) { stopAll(); flags |= f; err("RUN", code, txt); }
+
 static void controlStep(uint32_t now) {
   float d = medianOf3();
-  if (isnan(d)) { if (++badPings >= 5) { level = NAN; if (running) { stopAll(); flags |= F_SENSOR; } } }
-  else { badPings = 0; levelCm = sensorToFloor - d; level = 100.0f * levelCm / fullHeight; }
+  if (isnan(d)) { if (++badPings >= 5) { level = NAN; dist = NAN; if (running) { stopAll(); flags |= F_SENSOR; } } }
+  else { badPings = 0; dist = d; levelCm = sensorToFloor - d; level = 100.0f * levelCm / fullHeight; }
   if (!running || isnan(level)) { pump(0); return; }
 
   int duty = 0; float e = cfg.setpoint - level;
@@ -156,13 +235,25 @@ static void controlStep(uint32_t now) {
       integ = iNew; duty = (int)lround(uu); break;
     }
   }
-  // guards
-  if (level > L_OVER || digitalRead(PIN_FLOAT) == LOW) { duty = 0; flags |= F_OVERFLOW; } else flags &= ~F_OVERFLOW;
-  float target = (cfg.mode == ONOFF) ? cfg.Lmax : cfg.setpoint;
-  if (duty >= 200 && level < target - 5.0f) {
-    if (!fullSince) { fullSince = now; levelAtFull = level; }
-    if (now - fullSince > DRY_MS && level - levelAtFull < DRY_RISE) { stopAll(); flags |= F_DRY; err("RUN", 11, "no level rise at full pump: dry run?"); return; }
-  } else fullSince = 0;
+#if !PUMP_PWM
+  // motor: keep each state for its minimum time (the overflow guard below overrides this)
+  if (pumpOn && duty == 0 && now - pumpSince < MIN_ON_MS) duty = 255;
+  if (!pumpOn && duty > 0 && now - pumpSince < MIN_OFF_MS) duty = 0;
+#endif
+  // overflow: above the limit, inside the sensor's dead zone, or the float switch
+  if (level > grd.Lover || dist < D_MIN_CM || digitalRead(PIN_FLOAT) == LOW) { duty = 0; flags |= F_OVERFLOW; }
+  else flags &= ~F_OVERFLOW;
+  // no filling: over each t_dry window with the pump on, the level must rise rise_cm
+  bool fullOn = PUMP_PWM ? (duty >= 200 && level < ((cfg.mode == ONOFF) ? cfg.Lmax : cfg.setpoint) - 5.0f) : (duty > 0 && pumpOn);
+  if (fullOn) {
+    if (!dryWin) { dryWin = now; levelAtWin = levelCm; }
+    else if (now - dryWin >= (uint32_t)(grd.tDry * 1000)) {
+      if (levelCm - levelAtWin < grd.riseCm) { fault(F_DRY, 11, "pump on but the level is not rising: dry suction, empty reservoir or blocked pipe?"); return; }
+      dryWin = now; levelAtWin = levelCm;
+    }
+  } else dryWin = 0;
+  // run time (ON-OFF: every fill must end at Lmax; P and PI run the pump continuously by design)
+  if (cfg.mode == ONOFF && pumpOn && duty > 0 && now - pumpSince > (uint32_t)(grd.tMaxOn * 1000)) { fault(F_TIMEOUT, 13, "pump on longer than t_maxon: check the outlet and the level sensor"); return; }
   pump(duty);
 }
 
@@ -183,10 +274,18 @@ void setup() {
   pinMode(PIN_TRIG, OUTPUT); pinMode(PIN_ECHO, INPUT);
   pinMode(PIN_FLOAT, INPUT_PULLUP); pinMode(PIN_BTN, INPUT_PULLUP);
   Serial.begin(115200);
-  char b[48]; snprintf(b, sizeof(b), "HELLO,1,%s,%s,relay_active_low=%d", FW_NAME, FW_REV, RELAY_ACTIVE_LOW); sendFrame(b);
+  loadCal();
+  char b[72]; snprintf(b, sizeof(b), "HELLO,1,%s,%s,relay_active_low=%d,pump_pwm=%d,calibrated=%d", FW_NAME, FW_REV, RELAY_ACTIVE_LOW, PUMP_PWM, calibrated ? 1 : 0); sendFrame(b);
+  if (calibrated) reportCal();
+#ifdef __AVR__
+  wdt_enable(WDTO_2S);
+#endif
 }
 
 void loop() {
+#ifdef __AVR__
+  wdt_reset();
+#endif
   pollHost();
   uint32_t now = millis();
   static bool lastBtn = HIGH; static uint32_t tBtn = 0;
@@ -195,7 +294,7 @@ void loop() {
     tBtn = now; lastBtn = b;
     if (b == LOW) {
       if (running) { stopAll(); flags |= F_BUTTON; }
-      else if (!(flags & (F_DRY | F_SENSOR))) { running = true; hostControlled = false; tStart = now; seq = 0; integ = 0; flags = 0; }
+      else if (!(flags & (F_DRY | F_SENSOR | F_TIMEOUT)) && calibrated) { running = true; hostControlled = false; tStart = now; seq = 0; integ = 0; flags = 0; dryWin = 0; }
       else flags = 0;
     }
   }

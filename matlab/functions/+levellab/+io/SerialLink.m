@@ -123,14 +123,35 @@ classdef SerialLink < handle
             obj.logFid = -1;
         end
 
-        function setpoint(obj, v)
-            obj.send('SET', v);
+        function ok = command(obj, type, varargin)
+            %COMMAND  Send a command and wait for its ACK; resend up to 3 times.
+            %   A frame can arrive garbled (a byte lost while the board was busy); PINGs may be
+            %   lost (the watchdog allows for it), a configuration, a setpoint or RUN may not. An
+            %   ERR for this command is a refusal and is not resent. ok: the ACK arrived.
+            ok = false;
+            for attempt = 1:3
+                n0 = size(obj.eventLog, 1);
+                obj.send(type, varargin{:});
+                t0 = tic;
+                while toc(t0) < 0.6
+                    obj.poll();
+                    ev = obj.eventLog(n0 + 1:end, :);
+                    if any(strcmp(ev(:, 2), 'ACK') & strcmp(ev(:, 3), type)), ok = true; return; end
+                    if any(strcmp(ev(:, 2), 'ERR') & startsWith(string(ev(:, 3)), [type ','])), return; end
+                    pause(0.02);
+                end
+            end
         end
 
-        function run(obj)
+        function ok = setpoint(obj, v)
+            ok = obj.command('SET', v);
+        end
+
+        function ok = run(obj)
             obj.resetData();
-            obj.send('RUN');
-            obj.running = true;
+
+            ok = obj.command('RUN');
+            obj.running = ok;
             obj.lastPing = toc(obj.clock);
         end
 
@@ -142,7 +163,7 @@ classdef SerialLink < handle
             % Firmware without a soft stop treats both the same.
             if nargin < 2, how = ''; end
             if obj.isOpen()
-                if strcmpi(how, 'now'), obj.send('STOP', 'NOW'); else, obj.send('STOP'); end
+                if strcmpi(how, 'now'), obj.send('STOP', 'NOW'); else, obj.command('STOP'); end
             end
             obj.running = false;
         end

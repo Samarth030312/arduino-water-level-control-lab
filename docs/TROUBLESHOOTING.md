@@ -22,7 +22,7 @@ problem comes with its fix. Installation per system: [install](../install/README
 |---|---|---|
 | SENSOR CHECK reads nonsense or jumps | sensor not straight above the water, a ripple, too close (HC-SR04 minimum ~2 cm) | mount it square above a calm spot, at the height you typed in the physics panel |
 | the level reads a few % off | speed of sound: air temperature | type the air temperature in the physics panel (the app sends it with each run) |
-| the pump never starts | relay polarity (many modules are active-LOW), pump supply | firmware default is active-LOW; rebuild with `-DRELAY_ACTIVE_LOW=0` for the other kind |
+| the pump never starts | the SSR's input wired wrong way round (3 + to D4, 4 − to GND), the wrong build (a relay module that is active-LOW needs the *relay* pump wiring), the socket box unplugged, the RCD tripped | the SSR's LED shows whether the Uno switches it; the default build drives D4 HIGH for ON |
 | `dry run` fault | the level does not rise while the pump runs: empty reservoir, air in the pipe | refill, prime; STOP clears it |
 | `overflow` fault | the level passed 92 % | lower the setpoint; check the outlet |
 | P or PI does nothing | they need the PWM (MOSFET) wiring, not the relay | [wiring](hardware/WIRING.md) |

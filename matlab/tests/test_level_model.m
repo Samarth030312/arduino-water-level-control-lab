@@ -25,9 +25,11 @@ function testPIRemovesError(tc)
 end
 
 function testOnOffStaysNearBand(tc)
-    S = levellab.level.simulate(levellab.level.presetConfig('On-off 30-80 % (course)'));
+    c = levellab.level.presetConfig('On-off 30-80 % (course)'); S = levellab.level.simulate(c);
     tc.verifyEqual(S.metrics.verdict, 'CYCLING');
-    tc.verifyGreaterThan(S.metrics.band_low, 27); tc.verifyLessThan(S.metrics.band_high, 83);
+    % after the switch the pipe still delivers for the delay: overshoot ~ Q delay / A (in % of H)
+    over = 100 * c.P.Q_max * (c.P.delay + c.P.Ts) / c.P.A / c.P.H;
+    tc.verifyGreaterThan(S.metrics.band_low, 30 - over - 3); tc.verifyLessThan(S.metrics.band_high, 80 + over + 2);
 end
 
 function testNarrowBandSwitchesMore(tc)
@@ -46,7 +48,8 @@ end
 function testOverflowGuard(tc)
     c = levellab.level.defaultConfig(); c.Lmax = 99; c.Lmin = 95; c.P.k_out = 0; c.Tend = 600;   % nothing drains
     S = levellab.level.simulate(c);
-    tc.verifyLessThan(max(S.level), c.P.L_over + 3);
+    over = 100 * c.P.Q_max * (c.P.delay + c.P.Ts) / c.P.A / c.P.H;      % still arriving after the cut
+    tc.verifyLessThan(max(S.level), c.P.L_over + over + 1);
 end
 
 function testEveryPresetRuns(tc)

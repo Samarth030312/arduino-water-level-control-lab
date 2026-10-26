@@ -29,6 +29,8 @@ function testEveryModeAppearsInTelemetry(tc)
     link.poll();
     T = link.table();
     tc.verifyEqual(link.invalidCount, 0);
-    tc.verifyTrue(all(ismember(["ONOFF", "P"], string(T.mode))));
+    tc.verifyTrue(any(string(T.mode) == "ONOFF"));
+    % the transcript is the default build (SSR, on-off): P and PI are refused, with a reason
+    tc.verifyTrue(any(contains(string(tc.TestData.lines), "ERR,1,CFG,8,on-off pump wiring")));
     tc.verifyTrue(all(T.u >= 0 & T.u <= 255));
 end

@@ -40,8 +40,9 @@ end
 
 function testConstantOutflowIsIntegrating(tc)
     % pump fixed at full: gravity tank settles, constant-outflow tank keeps rising to the top
-    c = levellab.level.defaultConfig(); c.mode = 'P'; c.Kp = 1000; c.setpoint = 99; c.h0 = 10; c.Tend = 600;
-    c.P.noise_us = 0;
+    c = levellab.level.defaultConfig(); c.mode = 'P'; c.Kp = 1000; c.setpoint = 99; c.h0 = 10; c.Tend = 1500;
+    c.guards = false;                                             % tank physics only
+    c.P = levellab.level.physics(struct('tank_L', 0.15, 'tank_W', 0.15, 'tank_H', 0.25, 'h_sensor', 0.30, 'd_out', 7.7, 'Q_max', 4, 'H_max', 3, 'h_lift', 0.05, 'delay', 1)); c.P.noise_us = 0;      % a pump that cannot overflow the gravity tank
     g = levellab.level.simulate(c);
     c.outflow = 'constant'; c.Qout = 1; k = levellab.level.simulate(c);
     tc.verifyLessThan(abs(g.level(end) - g.level(end - 500)), 0.5);          % settled
