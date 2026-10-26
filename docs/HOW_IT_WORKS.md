@@ -9,7 +9,7 @@ the **emulator** (the real firmware compiled for the PC), and the **rig**.
 flowchart LR
     SP["setpoint %<br/>(or Lmin, Lmax)"] --> E(("−"))
     E --> C["Arduino Uno, every 0.1 s<br/>on-off · P · PI"]
-    C -->|"D4: relay (on-off)<br/>D5: MOSFET PWM (P, PI)"| P["DC pump<br/>flow falls with head"]
+    C -->|"D4: SSR or relay (on-off)<br/>D5: MOSFET PWM (P, PI)"| P["pump<br/>flow falls with head"]
     P -->|"relay + pipe delay"| T["tank<br/>A dh/dt = q_in − k·√h"]
     T --> O["outlet, valve"]
     T -.->|"echo"| S["HC-SR04<br/>level = sensor height − v·t/2"]

@@ -1,9 +1,7 @@
 classdef SerialLink < handle
 %SERIALLINK  Host side of the Arduino serial protocol v1 (any board).
 %
-%   link = levellab.io.SerialLink('TEL');      % DC motor (use levellab.motor.HardwareLink)
-%   link = levellab.io.SerialLink('TTEL');     % temperature board
-%   link = levellab.io.SerialLink('LTEL');     % water-level board
+%   link = levellab.io.SerialLink('LTEL');     % the water-level board
 %   link.open("/dev/ttyACM0");            % or link.attach(transport) in tests
 %   link.send('CFG', ...); link.setpoint(90); link.run();
 %   ... call link.poll() periodically (the app does it from a timer) ...
@@ -12,9 +10,9 @@ classdef SerialLink < handle
 %   STATUS: protocol v1 (docs/architecture/SERIAL_PROTOCOL.md). Unit-tested
 %   against a fake transport; the firmware compiles; NOT yet run on a real board.
 %
-%   Safety design: the firmware is specified to STOP the drive if it hears
+%   Safety design: the firmware switches the pump off if it hears
 %   nothing from the host for 3 s while running. poll() sends a PING every
-%   0.25 s while running, so a hung MATLAB stops the motor rather than leaving
+%   0.25 s while running, so a hung MATLAB stops the pump rather than leaving
 %   it under the last command.
 %
 %   The transport must provide: writeline(line), readline() -> string,

@@ -17,7 +17,7 @@ powershell -NoProfile -Command "[Net.ServicePointManager]::SecurityProtocol='Tls
 It installs Git if missing (winget), clones to `%USERPROFILE%\arduino-water-level-control-lab` (or updates it),
 checks the board's USB driver, and starts MATLAB with `setup open`. MATLAB then installs
 the Arduino toolchain into `%LOCALAPPDATA%\arduino-lab-tools` (once, about 60 MB) and opens the
-DC-motor app. To use another folder, first run `set LEVELLAB_DIR=D:\labs\arduino-water-level-control-lab` (cmd) or
+water-level app. To use another folder, first run `set LEVELLAB_DIR=D:\labs\arduino-water-level-control-lab` (cmd) or
 `$env:LEVELLAB_DIR='D:\labs\arduino-water-level-control-lab'` (PowerShell).
 
 The script is [install.ps1](install.ps1): read it before running it if you like.
@@ -36,7 +36,7 @@ Inside MATLAB, by hand:
 
 ```matlab
 setup fix fix                              % install the toolchain, check everything
-levellab.tools.flash('level', 'COM5')            % compile and upload the motor firmware
+levellab.tools.flash('level', 'COM5')            % compile and upload the firmware
 water_level_lab                                   % the app (it also has a FLASH button)
 ```
 

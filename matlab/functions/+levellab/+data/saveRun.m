@@ -1,7 +1,7 @@
 function out = saveRun(code, T, cfg, events, info)
 %SAVERUN  Save one rig run of any apparatus as evidence, and register it.
 %
-%   out = levellab.data.saveRun('MOTOR', T, cfg, events, info)
+%   out = levellab.data.saveRun('WATER', T, cfg, events, info)
 %
 %   T       telemetry table (SerialLink.table())
 %   cfg     the configuration that was sent (stored as config_sent; a field P is dropped)

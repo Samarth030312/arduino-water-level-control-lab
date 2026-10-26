@@ -1,7 +1,7 @@
 function R = sync(code, root)
 %SYNC  Commit this computer's new rig data and push it to GitHub (the SYNC DATA button).
 %
-%   R = levellab.data.sync('MOTOR')      % or 'TEMP', 'WATER', or '' for everything
+%   R = levellab.data.sync('WATER')      % or '' for every apparatus
 %
 %   1. stages data/ (raw runs, metadata, RUN_REGISTER.csv), results/evidence/logs and
 %      results/reports

@@ -1,12 +1,12 @@
 function R = flash(which, port, opts)
 %FLASH  Compile the sketch and upload it to an Arduino Uno (any OS).
 %
-%   R = levellab.tools.flash('motor', 'COM5')
-%   R = levellab.tools.flash('motor', '/dev/cu.usbserial-1420')
-%   R = levellab.tools.flash('temperature', '/dev/ttyACM0', 'Defines', {'LCD_I2C', 'DHT_KIND=DHT11'})
-%   R = levellab.tools.flash('motor', '', 'UploadOnly', false)   % compile only (no port)
+%   R = levellab.tools.flash('level', 'COM5')
+%   R = levellab.tools.flash('level', '/dev/cu.usbserial-1420')
+%   R = levellab.tools.flash('level', '/dev/ttyACM0', 'Defines', {'PUMP_PWM=1'})   % DC pump on a MOSFET
+%   R = levellab.tools.flash('level', '', 'UploadOnly', false)   % compile only (no port)
 %
-%   which   'motor', 'temperature' or 'level' (levellab.tools.manifest().sketches)
+%   which   'level' (levellab.tools.manifest().sketches)
 %   port    serial port; '' compiles without uploading
 %
 %   The firmware revision (git commit, '-dirty' for local changes) is compiled in
@@ -15,7 +15,7 @@ function R = flash(which, port, opts)
 %   Close any program holding the port (Serial Monitor, another MATLAB) first.
 
     arguments
-        which (1,:) char {mustBeMember(which, {'motor', 'temperature', 'level'})}
+        which (1,:) char {mustBeMember(which, {'level'})}
         port = ''
         opts.Defines cell = {}
         opts.LogDir char = ''

@@ -6,9 +6,8 @@ function s = schema(type)
 %   s.kinds  'num' | 'hex' | cell of allowed strings
 %   s.flags  bit names, bit 0 first
 %
-%   TEL   DC motor          (dc_motor/firmware/motor_controller)
-%   TTEL  temperature       (temperature/firmware/temperature_controller)
-%   LTEL  water level       (firmware/level_controller)
+%   LTEL  water level       (firmware/level_controller); TEL and TTEL are the frame types of
+%         the sister labs (DC servo, temperature), kept so the protocol stays one across them
 
     switch upper(type)
         case 'TEL'

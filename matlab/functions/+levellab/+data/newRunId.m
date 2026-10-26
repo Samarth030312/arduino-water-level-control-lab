@@ -1,7 +1,7 @@
 function [id, n] = newRunId(code, tag, when)
 %NEWRUNID  The next run id of an apparatus: <CODE>-R<nnnn>_<yyyymmdd-HHMMSS>_<tag>.
 %
-%   [id, n] = levellab.data.newRunId('MOTOR', 'M6')      -> 'MOTOR-R0062_20261023-193103_M6', 62
+%   [id, n] = levellab.data.newRunId('WATER', 'W2')      -> 'WATER-R0005_20261026-193103_W2', 5
 %
 %   n counts every rig run of that apparatus ever recorded (register and files on disk,
 %   whichever is higher), so the number alone says how many runs came before. tag is the
