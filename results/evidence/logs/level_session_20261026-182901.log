@@ -1,0 +1,5 @@
+18:29:14  connected on /dev/ttyACM0; geometry: sensor 0.342 m above the floor, 100 % = 0.220 m, 0.240 x 0.240 m, drain 8.0 mm, air 20 C
+18:29:24  idle 10 s (pump off): 97 readings, level 10.60 cm mean, 0.00 cm std, 10.60..10.60 cm (firmware geometry until the run sends ours)
+18:29:26  RUN 1/1 on-off 42.5-67.5 % for 300 s
+18:32:43  DONE 195 s  WATER-R0003_20261026-183239_W2 [STOPPED: the level readings jump more than the water can move: check the sensor's view]  FAULT the level readings jump more than the water can move: check the sensor's view
+18:32:50  session finished

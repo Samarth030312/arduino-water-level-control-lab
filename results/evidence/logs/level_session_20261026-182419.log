@@ -1,0 +1,3 @@
+18:24:53  connected on /dev/ttyACM0; geometry: sensor 0.342 m above the floor, 100 % = 0.220 m, 0.240 x 0.240 m, drain 8.0 mm, air 20 C
+18:25:03  idle 10 s (pump off): 96 readings, level 14.50 cm mean, 0.00 cm std, 14.50..14.50 cm (firmware geometry until the run sends ours)
+18:25:05  RUN 1/1 on-off 42.5-67.5 % for 300 s
