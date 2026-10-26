@@ -275,7 +275,7 @@ void setup() {
   pinMode(PIN_FLOAT, INPUT_PULLUP); pinMode(PIN_BTN, INPUT_PULLUP);
   Serial.begin(115200);
   loadCal();
-  char b[72]; snprintf(b, sizeof(b), "HELLO,1,%s,%s,relay_active_low=%d,pump_pwm=%d,calibrated=%d", FW_NAME, FW_REV, RELAY_ACTIVE_LOW, PUMP_PWM, calibrated ? 1 : 0); sendFrame(b);
+  char b[112]; snprintf(b, sizeof(b), "HELLO,1,%s,%s,relay_active_low=%d,pump_pwm=%d,calibrated=%d", FW_NAME, FW_REV, RELAY_ACTIVE_LOW, PUMP_PWM, calibrated ? 1 : 0); sendFrame(b);
   if (calibrated) reportCal();
 #ifdef __AVR__
   wdt_enable(WDTO_2S);
