@@ -1,9 +1,10 @@
-# Arduino water level control lab: tank, DC pump, HC-SR04, relay, MATLAB and Simulink
+# Arduino water level control lab: tank, pump, HC-SR04, SSR or MOSFET, MATLAB and Simulink
 
 **On-off, P and PI level control of a pumped tank with an Arduino Uno, an HC-SR04 ultrasonic
-sensor and a relay (or a MOSFET for PWM): firmware with overflow and dry-run guards, a MATLAB
-lab app whose physics comes from your tank, outlet and pump, a Simulink model with the Relay
-block, and an end-to-end test against an emulated rig.**
+sensor and a solid-state relay for a mains pump (or a MOSFET for a DC pump on PWM): firmware with
+overflow, dry-run and sensor guards, a MATLAB lab app whose physics comes from your tank, outlet
+and pump, a Simulink model with the Relay block, an end-to-end test against an emulated rig, and
+the first measured session on a real rig.**
 
 [![CI](https://github.com/Samarth030312/arduino-water-level-control-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/Samarth030312/arduino-water-level-control-lab/actions/workflows/ci.yml)
 ![Board](https://img.shields.io/badge/board-Arduino%20Uno-00979D)
@@ -12,11 +13,12 @@ block, and an end-to-end test against an emulated rig.**
 ![Platforms](https://img.shields.io/badge/runs%20on-Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-A small DC pump fills a tank; water leaves through an outlet at the bottom, faster the fuller the
-tank is. An ultrasonic sensor above the water times its echo. An Arduino switches the pump through
-a relay (on below Lmin, off above Lmax) or drives it with PWM through a MOSFET (P, PI). A MATLAB
-app simulates all of it from the tank, outlet and pump you describe, runs the same controller on
-the rig, records it, and draws one over the other.
+A pump fills a tank; water leaves through an outlet at the bottom, faster the fuller the tank
+is. An ultrasonic sensor above the water times its echo. An Arduino switches the pump through a
+solid-state relay (on below Lmin, off above Lmax) or, for a DC pump, drives it with PWM through a
+MOSFET (P, PI). A MATLAB app simulates all of it from the tank, outlet and pump you describe, runs
+the same controller on the rig, records it, and draws one over the other. The lab's rig: a 15 L
+jar filled from a 500 L tank by a 0.5 HP-class 230 V pump through a Fotek SSR-40DA.
 
 If you are building this rig, this repository takes you from parts to a measured control loop.
 If you are not, the simulator and the Simulink model teach the same ideas: a nonlinear,
@@ -39,7 +41,7 @@ first time (about 60 MB, hash-checked, no admin rights) and opens the app. The s
 only MATLAB. Terminal one-liners and the CH340 driver: **[install](install/README.md)**. Then,
 step by step: **[the sequence](docs/SEQUENCE.md)**.
 
-## What the model says, before the rig
+## What the model says
 
 With the default rig (a 15 L jar, 24 × 24 cm, an 8 mm drain, a 0.5 HP-class mains pump at
 25 L/min; ESTIMATED until you measure yours; worked out in [first principles](docs/FIRST_PRINCIPLES.md)):
@@ -56,8 +58,24 @@ With the default rig (a 15 L jar, 24 × 24 cm, an 8 mm drain, a 0.5 HP-class mai
 - **The firmware guards the pump and the floor**: overflow, no filling (dry suction), run time,
   lost sensor, silent host, a hung program, and at most ~200 starts an hour ([wiring](docs/hardware/WIRING.md)).
 
-Rig sessions will be added under [results](results/README.md); every number above will then be
-checked against the rig, as in the [DC servo lab](https://github.com/Samarth030312/rhino-rmcs-2303-dc-servo-control).
+## What the rig showed (2026-10-26)
+
+Four runs of on-off control ([session](results/reports/water_level/2026-10-26/README.md),
+[all against the predictions](docs/RESULTS.md)); the jar had no drain yet and was emptied by hand.
+
+- **On-off works as designed**: pump ON below Lmin, OFF at the first reading above Lmax, in short
+  bursts (6–10 s) and long rests (1.5–2 min). The level rose at 1.1–1.5 cm/s, faster than the
+  25 L/min estimate gives (0.72 cm/s).
+- **The overshoot is 2.8 cm (11–13 %)**, not 1.1 cm: the water kept rising for about 2 s after the
+  switch-off. Keep 100 % well under the rim.
+- **The HC-SR04 needs care**: pings 10 ms apart heard each other's echoes and started the pump with
+  the jar full; one ping per 100 ms with a median filter and a rate gate fixed it. A loose sensor
+  lead stopped two runs through the lost-echo guard, as intended.
+- **MATLAB and Simulink**, replaying each run with the flows measured in it, agree with each other
+  (T_on within 0.2 s) and with the rig's T_on within 1 s.
+
+<p align="center"><img src="results/reports/water_level/2026-10-26/onoff_cycles.png" width="900"
+alt="Two on-off runs on the rig: the level in percent against time, the pump-on intervals, the Lmin and Lmax lines, and the MATLAB and Simulink models of each run."></p>
 
 ## Start here
 
@@ -88,8 +106,8 @@ flowchart LR
     end
     subgraph RIG["rig"]
         UNO["Arduino Uno<br/>controller, 0.1 s"]
-        RLY["relay (on-off)<br/>or MOSFET (PWM)"]
-        PUMP["DC pump"]
+        RLY["SSR (on-off)<br/>or MOSFET (PWM)"]
+        PUMP["pump"]
         TANK["tank, outlet, valve"]
         US["HC-SR04"]
     end
@@ -104,11 +122,14 @@ flowchart LR
 
 ## Status
 
-- **Firmware:** on-off through the relay, P and PI through PWM, the air temperature for the speed
-  of sound, guards against overflow (92 %), dry run and a silent PC, an optional float switch;
-  compiles in CI on Windows, macOS and Linux; runs against an emulated tank, pump and sensor.
+- **Firmware:** on-off through an SSR or relay, P and PI through PWM, the air temperature for the
+  speed of sound, guards against overflow (92 %), dry run, run time, lost or jumping echoes and a
+  silent PC, minimum on and off times, an optional float switch, the AVR watchdog; compiles in CI
+  on Windows, macOS and Linux; runs against an emulated tank, pump and sensor.
 - **App and Simulink:** missions W1–W7 and LAB, end-to-end tested against the emulated rig.
-- **Not yet on a real rig.** The physics values are ASSUMED until you measure your tank and pump.
+- **Rig:** on-off measured on 2026-10-26 (W2, W5). Still to do: a drain on the jar, its
+  dimensions, the sensor calibration, W1 and W3–W7 (P and PI need a DC pump on a MOSFET)
+  ([open items](docs/knowledge-base/OPEN_ITEMS.md)). The physics defaults stay ESTIMATED until then.
 
 ## Repository layout
 

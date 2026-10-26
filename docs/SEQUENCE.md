@@ -34,3 +34,11 @@ to see what they prevent.
 
 **10. W2 → W7 on the rig.** Every run lands in `data/raw/water_level/` and
 `data/RUN_REGISTER.csv`; RUNS → OVERLAY RUN draws it over the simulation of its own settings.
+
+**11. The session's report.** `level_session_report('<yyyy-mm-dd>')` reads that day's runs from
+`data/` and writes `results/reports/water_level/<date>/REPORT.md` with its figures: switching
+times, flows, overshoot, the sensor's behaviour, and each run replayed in MATLAB and Simulink with
+the flows measured in it. Add a `README.md` beside it with what the data cannot say (the rig's
+state, what the operator did), as for [2026-10-26](../results/reports/water_level/2026-10-26/README.md).
+A scripted session (geometry, idle noise, on-off runs one after another):
+`level_rig_session('<port>', 'h_sensor', <m>, 'tank_H', <m>, 'Bands', [30 80; 50 55])`.

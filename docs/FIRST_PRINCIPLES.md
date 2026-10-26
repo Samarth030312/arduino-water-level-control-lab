@@ -67,8 +67,12 @@ too short: at 30 cm from the sensor the level reads ~0.8 cm too high. The app se
 temperature with each run.
 
 Its limits: nothing closer than about 2 cm; a beam about ±15° wide (16 cm across at 30 cm);
-resolution of a few millimetres; ripples, foam and the jar's walls give false echoes. The firmware
-takes the median of three pings every 0.1 s.
+resolution of a few millimetres; ripples, foam and the jar's walls give false echoes. Pings closer
+than about 60 ms hear the previous ping's echo still ringing in the jar (on the rig, three pings
+10 ms apart started the pump with the jar full). The firmware pings once per 0.1 s step and reports
+the median of the last five accepted pings; a ping further from that median than 3 cm plus 2 cm/s
+of elapsed time is rejected, since the water cannot move that fast (the rig's fastest rise is
+1.5 cm/s). Five seconds of rejected pings while the pump is under control is a sensor fault.
 
 ## 4. Control: on-off with two thresholds
 
@@ -87,6 +91,8 @@ the level between 30.5 % and 84.3 %.
 
 **Overshoot.** After the switch-off the pipe still delivers for the delay: ≈ Q_in t_d / A =
 417 mL/s × 1.5 s / 576 cm² ≈ 1.1 cm ≈ 4 % of the jar (simulated: Lmax 80 % → peak 84.3 %).
+On the rig (2026-10-26) it was 2.8 cm: the level kept rising for 1.8–2.6 s at 1.1–1.5 cm/s
+([results](RESULTS.md)).
 Undershoot at Lmin is small: the drain is slow.
 
 **Band width.** Halving the band halves both times and doubles the starts per hour. Below the
@@ -109,6 +115,7 @@ Truth table of the firmware (`firmware/level_controller`), evaluated every 0.1 s
 | pump ON for 20 s and the level rose < 1 cm (dry suction, empty reservoir, blocked or broken pipe) | OFF | yes |
 | pump ON for 180 s without reaching Lmax (drain too large, leak, sensor fault) | OFF | yes |
 | 5 failed pings in a row | OFF | yes |
+| 5 s of pings rejected as jumps the water cannot make, while running | OFF | yes |
 | MATLAB silent for 3 s while it controls | OFF | yes (until a new RUN) |
 | program stuck for 2 s | the AVR watchdog resets the board: D4 LOW, OFF | — |
 | not calibrated | RUN refused | — |

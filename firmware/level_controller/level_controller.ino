@@ -40,7 +40,8 @@
 // overflow and fault guards override it.
 // $GRD,1,<t_dry_s>,<rise_cm>,<t_maxon_s>,<L_over_%> changes the guards.
 //
-// STATUS: runs on the PC against an emulated tank + HC-SR04 (firmware/tests).
+// STATUS: runs on the PC against an emulated tank + HC-SR04 (firmware/tests); on-off run on the
+// lab rig on 2026-10-26 (results/reports/water_level/2026-10-26).
 
 #define FW_NAME "water_level_lab"
 #ifndef FW_REV

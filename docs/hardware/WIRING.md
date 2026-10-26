@@ -130,7 +130,7 @@ of the jar's neck, the inlet pipe and the jar walls (mount it centred over the w
 | overflow | level > 92 %, water within 4 cm of the sensor, or the float switch closed | pump off at once |
 | no filling | pump on, level rises less than 1 cm in 20 s | pump off, latched (dry suction, empty reservoir, blocked or broken pipe) |
 | run time | pump on 180 s without reaching Lmax | pump off, latched (drain too big, leak, sensor fault) |
-| sensor | 5 failed pings in a row | pump off, latched |
+| sensor | 5 failed pings in a row, or 5 s of readings the water could not produce (jumps) | pump off, latched |
 | host | MATLAB silent for 3 s while it controls | pump off |
 | program hang | the AVR watchdog resets the Uno after 2 s | after any reset D4 is LOW: pump off |
 | motor | at least 3 s on and 15 s off between switchings | anti short-cycling: at most ~200 starts an hour even with a 0 % band |
