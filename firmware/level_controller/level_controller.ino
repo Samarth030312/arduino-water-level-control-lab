@@ -55,6 +55,13 @@
 #ifdef __AVR__
 #include <avr/wdt.h>
 #include <EEPROM.h>
+#include <avr/pgmspace.h>
+#define TXT(s) PSTR(s)                  // message texts live in flash, not in the Uno's 2 KB of RAM
+static int freeRam() { extern int __heap_start, *__brkval; int v; return (int)&v - (__brkval == 0 ? (int)&__heap_start : (int)__brkval); }
+#else
+#define TXT(s) (s)
+#define pgm_read_byte(p) (*(const char *)(p))
+static int freeRam() { return 0; }
 #endif
 
 const uint8_t PIN_TRIG = 8, PIN_ECHO = 7, PIN_RELAY = 4, PIN_PWM = 5, PIN_FLOAT = 3, PIN_BTN = 12;
@@ -100,7 +107,19 @@ static void sendFrame(const char *body) {
   Serial.write(hexDigit(cs >> 4)); Serial.write(hexDigit(cs & 15)); Serial.write('\n');
 }
 static void ack(const char *t) { char b[24]; snprintf(b, sizeof(b), "ACK,1,%s", t); sendFrame(b); }
-static void err(const char *t, int code, const char *txt) { char b[64]; snprintf(b, sizeof(b), "ERR,1,%s,%d,%s", t, code, txt); sendFrame(b); }
+// an error frame: the head is built in RAM, the text is read from flash one byte at a time
+static void err(const char *t, int code, const char *txtP) {
+  char head[24]; snprintf(head, sizeof(head), "ERR,1,%s,%d,", t, code);
+  uint8_t cs = xorSum(head);
+  for (const char *q = txtP; pgm_read_byte(q); q++) cs ^= (uint8_t)pgm_read_byte(q);
+  Serial.write('$'); Serial.print(head);
+  for (const char *q = txtP; pgm_read_byte(q); q++) Serial.write((char)pgm_read_byte(q));
+  Serial.write('*'); Serial.write(hexDigit(cs >> 4)); Serial.write(hexDigit(cs & 15)); Serial.write('\n');
+}
+// a number as text that always fits its buffer (10 bytes): out of range or not finite -> "nan"
+static void fmtNum(float v, uint8_t prec, char *b) {
+  if (!(fabs(v) <= 99999.0f)) strcpy(b, "nan"); else dtostrf(v, 1, prec, b);   // NaN, inf, too large
+}
 
 static void pump(int duty) {
   u = constrain(duty, 0, 255);
@@ -164,32 +183,32 @@ static float medianOf3() {                   // for $ZERO: three pings, 70 ms ap
 
 static void reportCal() {
   char a[10], b[10], c[10];
-  dtostrf(sensorToFloor, 1, 1, a); dtostrf(fullHeight, 1, 1, b); dtostrf(airC, 1, 1, c);
-  Serial.print("# cal sensor_to_floor_cm="); Serial.print(a); Serial.print(" full_height_cm="); Serial.print(b);
-  Serial.print(" air_C="); Serial.println(c);
+  fmtNum(sensorToFloor, 1, a); fmtNum(fullHeight, 1, b); fmtNum(airC, 1, c);
+  Serial.print(F("# cal sensor_to_floor_cm=")); Serial.print(a); Serial.print(F(" full_height_cm=")); Serial.print(b);
+  Serial.print(F(" air_C=")); Serial.println(c);
 }
 
 // ------------------------------------------------------------------ protocol
 static void handleLine(char *line) {
   if (line[0] != '$') return;
   char *star = strrchr(line, '*');
-  if (star) { *star = 0; if (xorSum(line + 1) != (uint8_t)((hexVal(star[1]) << 4) | hexVal(star[2]))) { err("?", 1, "checksum"); return; } }
+  if (star) { *star = 0; if (xorSum(line + 1) != (uint8_t)((hexVal(star[1]) << 4) | hexVal(star[2]))) { err("?", 1, TXT("checksum")); return; } }
   char *tok[10]; uint8_t nt = 0;
   for (char *p = strtok(line + 1, ","); p && nt < 10; p = strtok(NULL, ",")) tok[nt++] = p;
-  if (nt < 2 || strcmp(tok[1], "1")) { err("?", 2, "version"); return; }
+  if (nt < 2 || strcmp(tok[1], "1")) { err("?", 2, TXT("version")); return; }
   const char *t = tok[0];
   lastHost = millis();
   if (!strcmp(t, "PING")) return;
   if (!strcmp(t, "CFG")) {
-    if (running) { err(t, 3, "stop first"); return; }
-    if (nt != 8) { err(t, 4, "fields"); return; }
+    if (running) { err(t, 3, TXT("stop first")); return; }
+    if (nt != 8) { err(t, 4, TXT("fields")); return; }
     uint8_t m = 255; for (uint8_t i = 0; i < 3; i++) if (!strcmp(tok[2], MODE_NAMES[i])) m = i;
-    if (m == 255) { err(t, 5, "mode"); return; }
+    if (m == 255) { err(t, 5, TXT("mode")); return; }
 #if !PUMP_PWM
-    if (m != ONOFF) { err(t, 8, "on-off pump wiring: P and PI need PUMP_PWM (DC pump on a MOSFET)"); return; }
+    if (m != ONOFF) { err(t, 8, TXT("on-off pump wiring: P and PI need PUMP_PWM (DC pump on a MOSFET)")); return; }
 #endif
     float lo = atof(tok[3]), hi = atof(tok[4]);
-    if (!(lo >= 0 && hi > lo)) { err(t, 9, "need 0 <= Lmin < Lmax"); return; }
+    if (!(lo >= 0 && hi > lo)) { err(t, 9, TXT("need 0 <= Lmin < Lmax")); return; }
     cfg.mode = (Mode)m; cfg.Lmin = lo; cfg.Lmax = hi; cfg.setpoint = atof(tok[5]);
     cfg.Kp = atof(tok[6]); cfg.Ki = atof(tok[7]);
     if (cfg.Lmax > grd.Lover - 2) cfg.Lmax = grd.Lover - 2;
@@ -197,37 +216,37 @@ static void handleLine(char *line) {
     ack(t); return;
   }
   if (!strcmp(t, "CAL")) {
-    if (running) { err(t, 3, "stop first"); return; }
-    if (nt != 4 && nt != 5) { err(t, 4, "fields"); return; }
+    if (running) { err(t, 3, TXT("stop first")); return; }
+    if (nt != 4 && nt != 5) { err(t, 4, TXT("fields")); return; }
     float s2f = atof(tok[2]), full = atof(tok[3]);
-    if (!(s2f > 5 && s2f < 400 && full > 1 && full <= s2f - D_MIN_CM)) { err(t, 9, "need 5 < sensor_to_floor < 400, full <= sensor_to_floor - 4"); return; }
+    if (!(s2f > 5 && s2f < 400 && full > 1 && full <= s2f - D_MIN_CM)) { err(t, 9, TXT("need 5 < sensor_to_floor < 400, full <= sensor_to_floor - 4")); return; }
     sensorToFloor = s2f; fullHeight = full;
     if (nt == 5) airC = constrain(atof(tok[4]), -10.0f, 50.0f);
     saveCal(); reportCal(); ack(t); return;
   }
   if (!strcmp(t, "ZERO")) {                         // tank empty: the measured distance is sensor -> floor
-    if (running) { err(t, 3, "stop first"); return; }
+    if (running) { err(t, 3, TXT("stop first")); return; }
     float d = medianOf3();
-    if (isnan(d) || d < 5) { err(t, 9, "no valid echo"); return; }
+    if (isnan(d) || d < 5) { err(t, 9, TXT("no valid echo")); return; }
     sensorToFloor = d;
     if (fullHeight > sensorToFloor - D_MIN_CM) fullHeight = sensorToFloor - D_MIN_CM;
     saveCal(); reportCal(); ack(t); return;
   }
   if (!strcmp(t, "GRD")) {
-    if (running) { err(t, 3, "stop first"); return; }
-    if (nt != 6) { err(t, 4, "fields"); return; }
+    if (running) { err(t, 3, TXT("stop first")); return; }
+    if (nt != 6) { err(t, 4, TXT("fields")); return; }
     grd.tDry = constrain(atof(tok[2]), 2.0f, 600.0f); grd.riseCm = constrain(atof(tok[3]), 0.1f, 20.0f);
     grd.tMaxOn = constrain(atof(tok[4]), 5.0f, 3600.0f); grd.Lover = constrain(atof(tok[5]), 50.0f, 98.0f);
     ack(t); return;
   }
-  if (!strcmp(t, "SET")) { if (nt == 3) { cfg.setpoint = min(atof(tok[2]), grd.Lover - 5); ack(t); } else err(t, 4, "fields"); return; }
+  if (!strcmp(t, "SET")) { if (nt == 3) { cfg.setpoint = min(atof(tok[2]), grd.Lover - 5); ack(t); } else err(t, 4, TXT("fields")); return; }
   if (!strcmp(t, "RUN")) {
-    if (flags & (F_DRY | F_SENSOR | F_TIMEOUT | F_OVERFLOW_LATCH)) { err(t, 6, "fault latched: STOP first"); return; }
-    if (!calibrated) { err(t, 12, "not calibrated: $ZERO with the tank empty, or $CAL"); return; }
+    if (flags & (F_DRY | F_SENSOR | F_TIMEOUT | F_OVERFLOW_LATCH)) { err(t, 6, TXT("fault latched: STOP first")); return; }
+    if (!calibrated) { err(t, 12, TXT("not calibrated: $ZERO with the tank empty, or $CAL")); return; }
     running = true; hostControlled = true; seq = 0; tStart = millis(); integ = 0; fullSince = 0; dryWin = 0; lowCount = 0; ack(t); return;
   }
   if (!strcmp(t, "STOP") || !strcmp(t, "ESTOP")) { stopAll(); flags = 0; ack(t); return; }
-  err(t, 7, "unknown");
+  err(t, 7, TXT("unknown"));
 }
 
 static void pollHost() {
@@ -241,13 +260,13 @@ static void pollHost() {
 }
 
 // ------------------------------------------------------------------ control
-static void fault(uint8_t f, int code, const char *txt) { stopAll(); flags |= f; err("RUN", code, txt); }
+static void fault(uint8_t f, int code, const char *txtP) { stopAll(); flags |= f; err("RUN", code, txtP); }
 
 static void controlStep(uint32_t now) {
   float d = filteredCm();
   if (sensorDistrust) {                       // 5 s of readings the water could not produce
     sensorDistrust = false;
-    if (running) { fault(F_SENSOR, 15, "the level readings jump more than the water can move: check the sensor's view"); return; }
+    if (running) { fault(F_SENSOR, 15, TXT("the level readings jump more than the water can move: check the sensor's view")); return; }
   }
   if (isnan(d)) { if (++badPings >= 5) { level = NAN; dist = NAN; bufReset(); if (running) { stopAll(); flags |= F_SENSOR; } } }
   else { badPings = 0; dist = d; levelCm = sensorToFloor - d; level = 100.0f * levelCm / fullHeight; }
@@ -279,7 +298,7 @@ static void controlStep(uint32_t now) {
   // overflow: above the limit, inside the sensor's dead zone, or the float switch
   if (level > grd.Lover || dist < D_MIN_CM || digitalRead(PIN_FLOAT) == LOW) {
     // above the limit with the pump running means the sensing or the control failed: latch
-    if (pumpOn) { fault(F_OVERFLOW | F_OVERFLOW_LATCH, 14, "overflow limit reached with the pump on: check the sensor and the settings"); return; }
+    if (pumpOn) { fault(F_OVERFLOW | F_OVERFLOW_LATCH, 14, TXT("overflow limit reached with the pump on: check the sensor and the settings")); return; }
     duty = 0; flags |= F_OVERFLOW;
   } else flags &= ~F_OVERFLOW;
   // no filling: over each t_dry window with the pump on, the level must rise rise_cm
@@ -287,20 +306,19 @@ static void controlStep(uint32_t now) {
   if (fullOn) {
     if (!dryWin) { dryWin = now; levelAtWin = levelCm; }
     else if (now - dryWin >= (uint32_t)(grd.tDry * 1000)) {
-      if (levelCm - levelAtWin < grd.riseCm) { fault(F_DRY, 11, "pump on but the level is not rising: dry suction, empty reservoir or blocked pipe?"); return; }
+      if (levelCm - levelAtWin < grd.riseCm) { fault(F_DRY, 11, TXT("pump on but the level is not rising: dry suction, empty reservoir or blocked pipe?")); return; }
       dryWin = now; levelAtWin = levelCm;
     }
   } else dryWin = 0;
   // run time (ON-OFF: every fill must end at Lmax; P and PI run the pump continuously by design)
-  if (cfg.mode == ONOFF && pumpOn && duty > 0 && now - pumpSince > (uint32_t)(grd.tMaxOn * 1000)) { fault(F_TIMEOUT, 13, "pump on longer than t_maxon: check the outlet and the level sensor"); return; }
+  if (cfg.mode == ONOFF && pumpOn && duty > 0 && now - pumpSince > (uint32_t)(grd.tMaxOn * 1000)) { fault(F_TIMEOUT, 13, TXT("pump on longer than t_maxon: check the outlet and the level sensor")); return; }
   pump(duty);
 }
 
 static void sendTelemetry(uint32_t now) {
   char sp[10], lc[10], lp[10], er[10];
-  if (isnan(levelCm)) strcpy(lc, "nan"); else dtostrf(levelCm, 1, 1, lc);
-  if (isnan(level)) { strcpy(lp, "nan"); strcpy(er, "nan"); } else { dtostrf(level, 1, 1, lp); dtostrf(cfg.setpoint - level, 1, 2, er); }
-  dtostrf(cfg.mode == ONOFF ? NAN : cfg.setpoint, 1, 1, sp); if (cfg.mode == ONOFF) strcpy(sp, "nan");
+  fmtNum(levelCm, 1, lc); fmtNum(level, 1, lp); fmtNum(cfg.setpoint - level, 2, er);
+  fmtNum(cfg.mode == ONOFF ? NAN : cfg.setpoint, 1, sp);
   char body[110];
   snprintf(body, sizeof(body), "LTEL,1,%lu,%lu,%s,%s,%s,%s,%s,%d,%d,%X",
            (unsigned long)seq++, (unsigned long)(now - tStart), MODE_NAMES[cfg.mode], sp, lc, lp, er, u,
@@ -314,7 +332,7 @@ void setup() {
   pinMode(PIN_FLOAT, INPUT_PULLUP); pinMode(PIN_BTN, INPUT_PULLUP);
   Serial.begin(115200);
   loadCal();
-  char b[112]; snprintf(b, sizeof(b), "HELLO,1,%s,%s,relay_active_low=%d,pump_pwm=%d,calibrated=%d", FW_NAME, FW_REV, RELAY_ACTIVE_LOW, PUMP_PWM, calibrated ? 1 : 0); sendFrame(b);
+  char b[112]; snprintf(b, sizeof(b), "HELLO,1,%s,%s,relay_active_low=%d,pump_pwm=%d,calibrated=%d,free_ram=%d", FW_NAME, FW_REV, RELAY_ACTIVE_LOW, PUMP_PWM, calibrated ? 1 : 0, freeRam()); sendFrame(b);
   if (calibrated) reportCal();
 #ifdef __AVR__
   wdt_enable(WDTO_2S);
@@ -337,6 +355,6 @@ void loop() {
       else flags = 0;
     }
   }
-  if (running && hostControlled && now - lastHost > 3000) { stopAll(); flags |= F_WATCHDOG; err("RUN", 10, "host silent >3 s - pump off"); }
+  if (running && hostControlled && now - lastHost > 3000) { stopAll(); flags |= F_WATCHDOG; err("RUN", 10, TXT("host silent >3 s - pump off")); }
   if (now - lastTs >= TS_MS) { lastTs = now; controlStep(now); sendTelemetry(now); }
 }

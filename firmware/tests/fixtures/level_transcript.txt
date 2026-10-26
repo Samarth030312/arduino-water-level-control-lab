@@ -1,4 +1,4 @@
-$HELLO,1,water_level_lab,dev,relay_active_low=0,pump_pwm=0,calibrated=0*50
+$HELLO,1,water_level_lab,dev,relay_active_low=0,pump_pwm=0,calibrated=0,free_ram=0*44
 $LTEL,1,0,100,ONOFF,nan,0.0,0.0,49.99,0,0,0*31
 $ACK,1,CFG*3A
 $ERR,1,RUN,12,not calibrated: $ZERO with the tank empty, or $CAL*11
@@ -521,7 +521,7 @@ $LTEL,1,10141,1014140,ONOFF,nan,18.7,72.0,-22.03,0,0,1*1D
 $LTEL,1,10161,1016140,ONOFF,nan,18.4,70.8,-20.84,0,0,1*19
 $LTEL,1,10181,1018140,ONOFF,nan,18.1,69.6,-19.58,0,0,1*11
 $ACK,1,STOP*60
-$ERR,1,CFG,8,on-off pump wiring: P and PI need PUMP_PWM (DC pump*51
+$ERR,1,CFG,8,on-off pump wiring: P and PI need PUMP_PWM (DC pump on a MOSFET)*3E
 $LTEL,1,10201,1020140,ONOFF,nan,17.8,68.4,-18.39,0,0,0*13
 $ACK,1,STOP*60
 $ACK,1,CFG*3A
@@ -600,11 +600,11 @@ $LTEL,1,133,13340,ONOFF,nan,4.3,16.4,33.65,0,0,0*0E
 $LTEL,1,153,15340,ONOFF,nan,4.1,15.8,34.24,0,0,0*01
 $ACK,1,RUN*31
 $LTEL,1,0,40,ONOFF,nan,4.0,15.2,34.77,0,0,1*3D
-$ERR,1,RUN,14,overflow limit reached with the pump on: check the*6A
+$ERR,1,RUN,14,overflow limit reached with the pump on: check the sensor and the settings*6B
 $ACK,1,STOP*60
 $LTEL,1,20,2040,ONOFF,nan,4.4,16.8,33.19,0,0,0*0E
 $ACK,1,STOP*60
-$ERR,1,CAL,9,need 5 < sensor_to_floor < 400, full <= sensor_to_f*28
+$ERR,1,CAL,9,need 5 < sensor_to_floor < 400, full <= sensor_to_floor - 4*2F
 $ACK,1,RUN*31
 $LTEL,1,15,1540,ONOFF,nan,28.9,111.3,-61.26,0,0,5*23
 $ERR,1,CAL,3,stop first*4B
@@ -629,7 +629,7 @@ $LTEL,1,130,13040,ONOFF,nan,3.0,11.7,38.27,255,1,1*01
 $LTEL,1,150,15040,ONOFF,nan,2.9,11.3,38.73,255,1,1*0C
 $LTEL,1,170,17040,ONOFF,nan,2.8,10.8,39.19,255,1,1*0A
 $LTEL,1,190,19040,ONOFF,nan,2.7,10.3,39.66,255,1,1*06
-$ERR,1,RUN,11,pump on but the level is not rising: dry suction, *2F
+$ERR,1,RUN,11,pump on but the level is not rising: dry suction, empty reservoir or blocked pipe?*6D
 $LTEL,1,210,21040,ONOFF,nan,2.6,9.9,40.12,0,0,8*32
 $LTEL,1,230,23040,ONOFF,nan,2.4,9.4,40.58,0,0,8*33
 $LTEL,1,250,25040,ONOFF,nan,2.3,9.0,41.04,0,0,8*38
@@ -696,7 +696,7 @@ $LTEL,1,535,53540,ONOFF,nan,5.9,22.8,27.24,255,1,1*0C
 $LTEL,1,555,55540,ONOFF,nan,5.9,22.8,27.18,255,1,1*03
 $LTEL,1,575,57540,ONOFF,nan,5.9,22.8,27.18,255,1,1*03
 $LTEL,1,595,59540,ONOFF,nan,6.0,22.9,27.11,255,1,1*01
-$ERR,1,RUN,13,pump on longer than t_maxon: check the outlet and *0B
+$ERR,1,RUN,13,pump on longer than t_maxon: check the outlet and the level sensor*12
 $LTEL,1,615,61540,ONOFF,nan,5.2,20.2,29.82,0,0,40*3B
 $LTEL,1,635,63540,ONOFF,nan,4.0,15.3,34.70,0,0,40*3E
 $LTEL,1,655,65540,ONOFF,nan,2.9,11.1,38.86,0,0,40*32
@@ -788,7 +788,7 @@ $LTEL,1,739,73940,ONOFF,nan,2.0,7.6,42.43,0,0,0*3B
 $LTEL,1,759,75940,ONOFF,nan,1.9,7.2,42.83,0,0,0*39
 $LTEL,1,779,77940,ONOFF,nan,1.8,6.8,43.22,0,0,0*39
 $ACK,1,RUN*31
-$ERR,1,RUN,14,overflow limit reached with the pump on: check the*6A
+$ERR,1,RUN,14,overflow limit reached with the pump on: check the sensor and the settings*6B
 $ERR,1,RUN,6,fault latched: STOP first*6A
 $ACK,1,STOP*60
 $LTEL,1,16,1640,ONOFF,nan,2.2,8.6,41.37,0,0,0*36

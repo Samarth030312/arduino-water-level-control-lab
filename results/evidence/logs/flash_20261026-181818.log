@@ -1,0 +1,5 @@
+# glnxa64  level ->   (FW_REV e300af3-dirty)
+'/home/odyssix/.local/share/arduino-lab-tools/arduino-cli/arduino-cli' 'compile' '--fqbn' 'arduino:avr:uno' '--build-path' '/home/odyssix/.local/share/arduino-lab-tools/build/level' '--build-property' 'compiler.cpp.extra_flags=-DFW_REV="e300af3-dirty"' '/home/odyssix/Projects/arduino-water-level-control-lab/firmware/level_controller'
+Sketch uses 16072 bytes (49%) of program storage space. Maximum is 32256 bytes.
+Global variables use 1280 bytes (62%) of dynamic memory, leaving 768 bytes for local variables. Maximum is 2048 bytes.
+

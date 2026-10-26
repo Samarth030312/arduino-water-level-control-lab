@@ -161,7 +161,7 @@ int main(int argc, char **argv) {
   printf("water-level firmware host test, PUMP_PWM = 0 (emulated 15 L jar, mains pump behind an SSR)\n");
 #endif
   setup(); runFor(1, false);
-  char hello[96]; snprintf(hello, sizeof hello, "$HELLO,1,water_level_lab,dev,relay_active_low=0,pump_pwm=%d,calibrated=0*", PUMP_PWM);
+  char hello[110]; snprintf(hello, sizeof hello, "$HELLO,1,water_level_lab,dev,relay_active_low=0,pump_pwm=%d,calibrated=0,free_ram=0*", PUMP_PWM);
   CHECK(Serial.out.find(hello) != std::string::npos, "HELLO reports the wiring and that it is not calibrated");
   CHECK(!tank.pumpOn(), "pump OFF after power-up");
   send("CFG,1,ONOFF,30,80,50,20,0.5"); send("RUN,1"); runFor(0.3, false);
