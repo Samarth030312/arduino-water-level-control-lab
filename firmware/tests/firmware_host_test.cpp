@@ -71,10 +71,19 @@ struct Tank {
     if (pumpOn() && !lastOn) pumpStarts++; lastOn = pumpOn();
     h = std::min(std::max(h + dt / A * (q - kOut * std::sqrt(std::max(h, 0.0))), 0.0), hSensor - 0.01);
   }
-  unsigned long echoUs() const {
+  double ghostRate = 0;                                 // fraction of pings that hear a stray echo
+  double lastPingMs = -1e9; unsigned rng = 12345;
+  unsigned long echoUs() {
     if (sensorDead) return 0;
     double v = 331.3 + 0.606 * airC;                   // m/s
-    return (unsigned long)std::lround(2 * (hSensor - h) / v * 1e6);
+    double d = hSensor - h;
+    rng = rng * 1103515245u + 12345u;
+    double r = (rng >> 8) / 16777216.0;
+    // a ping within 50 ms of the last one hears the previous ping still echoing in the tank; and
+    // some pings return a stray echo (walls, neck, splashes): both much too short
+    if (g_now_ms - lastPingMs < 50 || r < ghostRate) d = 0.04 + 0.5 * r * (hSensor - h);
+    lastPingMs = g_now_ms;
+    return (unsigned long)std::lround(2 * d / v * 1e6);
   }
 } tank;
 static double lastStep = 0;
@@ -108,7 +117,10 @@ static double lastField(int idx) {
   for (int i = 0; i < idx; i++) l = l.substr(l.find(',') + 1);
   return atof(l.c_str());
 }
-static void reset(double hPct) { send("STOP,1"); runFor(0.3, false); tank.h = hPct / 100 * tank.H; tank.pumpStarts = 0; }
+// the tests move the emulated water instantly, which real water cannot do: the firmware's filter
+// would (rightly) reject the jump, so a teleport restarts it, as a power-up would
+static void teleport(double hM) { tank.h = hM; bufReset(); }
+static void reset(double hPct) { send("STOP,1"); runFor(0.3, false); teleport(hPct / 100 * tank.H); tank.pumpStarts = 0; }
 
 // --pty [speedup]: run the firmware in real time on a pseudo-terminal so MATLAB can connect to it
 // (end-to-end test of water_level_lab <-> real firmware code <-> emulated tank). The firmware keeps
@@ -156,12 +168,12 @@ int main(int argc, char **argv) {
   CHECK(Serial.out.find("ERR,1,RUN,12,not calibrated") != std::string::npos && !running, "RUN refused until calibrated");
 
   // $ZERO with the tank empty measures sensor -> floor
-  tank.h = 0; send("ZERO,1"); runFor(0.3, false);
+  teleport(0); send("ZERO,1"); runFor(0.3, false);
   CHECK(fabs(sensorToFloor - tank.hSensor * 100) < 0.3 && calibrated, "$ZERO (empty tank) measures the sensor height");
   calibrate();
   runFor(1, false);
   CHECK(fabs(lastField(5) - 0) < 1.5, "empty tank reads about 0 %");
-  tank.h = 0.5 * tank.H; runFor(1, false);
+  teleport(0.5 * tank.H); runFor(1, false);
   CHECK(fabs(lastField(5) - 50) < 1.5, "half full reads about 50 %");
 
   // ON-OFF 30-80 %: several cycles, pump on below Lmin, off above Lmax, never chatters
@@ -201,9 +213,9 @@ int main(int argc, char **argv) {
   reset(20); runFor(16, false); send("RUN,1"); runFor(1); CHECK(tank.pumpOn(), "below Lmin: pump on");
   g_pin[PIN_FLOAT] = LOW; runFor(1);
   CHECK(!tank.pumpOn() && (flags & F_OVERFLOW), "float switch closed: pump off at once (overrides the minimum on time)");
-  g_pin[PIN_FLOAT] = HIGH;
+  g_pin[PIN_FLOAT] = HIGH; send("STOP,1"); runFor(0.2, false);
   // the sensor's dead zone: water within 4 cm of the sensor is an overflow whatever the calibration says
-  reset(20); send("CAL,1,32,40,20"); send("RUN,1"); runFor(1); tank.h = tank.hSensor - 0.03; runFor(1);
+  reset(20); send("CAL,1,32,40,20"); send("RUN,1"); runFor(1); teleport(tank.hSensor - 0.03); runFor(1);
   CHECK(!tank.pumpOn() && (flags & F_OVERFLOW), "water within 4 cm of the sensor: pump off");
   calibrate();
 
@@ -238,6 +250,25 @@ int main(int argc, char **argv) {
   printf("        level error at 35 C air: %.2f %% uncorrected, %.2f %% with $CAL air 35 C\n", errUncal, errCal);
   CHECK(errUncal > 0.8 && fabs(errCal) < 0.4, "air-temperature correction removes the speed-of-sound error");
   tank.airC = 20; calibrate();
+
+  // ghost echoes (30 % of pings) with the jar full: the pump never starts, the level reads true
+  reset(85); runFor(16, false); send("CFG,1,ONOFF,30,80,50,20,0.5"); tank.ghostRate = 0.3; send("RUN,1");
+  { int starts0 = tank.pumpStarts; double worst = 0;
+    runFor(2);                                              // the filter re-acquires after the reset
+    for (int i = 0; i < 600; i++) { runFor(0.1); worst = std::max(worst, fabs(lastField(5) - lvlPct())); }
+    printf("        30 %% ghost echoes, jar at 85 %%: %d pump starts, largest reading error %.1f %%\n", tank.pumpStarts - starts0, worst);
+    CHECK(tank.pumpStarts == starts0, "ghost echoes never start the pump when the jar is full");
+    CHECK(worst < 3, "the filtered level stays within 3 % of the true level"); }
+  tank.ghostRate = 0;
+
+  // the float switch closing while the pump runs: something failed -> latched
+  reset(10); runFor(16, false); send("RUN,1"); runFor(1);
+  CHECK(tank.pumpOn(), "pump on below Lmin");
+  g_pin[PIN_FLOAT] = LOW; runFor(0.3);
+  CHECK(!running && !tank.pumpOn() && (flags & F_OVERFLOW_LATCH), "overflow reached with the pump on: latched off");
+  g_pin[PIN_FLOAT] = HIGH; send("RUN,1"); runFor(0.2);
+  CHECK(!running, "RUN refused until STOP clears it");
+  send("STOP,1"); runFor(0.2, false);
 
   send("CFG,1,BOGUS,30,80,50,20,0.5"); runFor(0.1, false);
   CHECK(Serial.out.find("ERR,1,CFG,5,mode") != std::string::npos, "unknown mode refused");

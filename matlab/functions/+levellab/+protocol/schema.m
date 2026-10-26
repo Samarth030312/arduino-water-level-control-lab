@@ -29,7 +29,7 @@ function s = schema(type)
                        'pump', 'flags'};
             s.kinds = {'num', 'num', {'ONOFF', 'P', 'PI'}, 'num', 'num', 'num', 'num', 'num', ...
                        'num', 'hex'};
-            s.flags = {'RUNNING', 'SENSOR_FAIL', 'OVERFLOW_GUARD', 'DRYRUN_GUARD', 'WATCHDOG_STOP', 'BUTTON_STOP', 'RUNTIME_GUARD'};
+            s.flags = {'RUNNING', 'SENSOR_FAIL', 'OVERFLOW_GUARD', 'DRYRUN_GUARD', 'WATCHDOG_STOP', 'BUTTON_STOP', 'RUNTIME_GUARD', 'OVERFLOW_LATCHED'};
         otherwise
             error('levellab:protocol:type', 'unknown telemetry type ''%s''', type);
     end

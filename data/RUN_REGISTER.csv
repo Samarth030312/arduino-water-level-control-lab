@@ -1,1 +1,2 @@
 run_id,apparatus,run_no,created,rig,mission,experiment,run_in_series,controller,settings,result,rows,firmware,port,os,legacy_id,raw_file,meta_file
+"WATER-R0001_20261026-175940_W2","WATER",1,"2026-10-26T17:59:41+0530","WATER bench","W2","Lmin 30 %, Lmax 80 % (course)",1,"ONOFF","mode=ONOFF setpoint=50","ABORTED: board unplugged",2972,"water_level_lab 28601cd","/dev/ttyACM0","glnxa64","","data/raw/water_level/WATER-R0001_20261026-175940_W2.csv","data/metadata/water_level/WATER-R0001_20261026-175940_W2.json"

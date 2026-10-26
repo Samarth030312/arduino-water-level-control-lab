@@ -25,7 +25,10 @@
 //
 // GUARDS (pump forced off)
 //   overflow     level > L_over (92 %), or the water closer than 4 cm to the sensor (its dead
-//                zone), or the float switch closed
+//                zone), or the float switch closed; reached while the pump runs -> latched
+// SENSOR: one ping per 100 ms step (>= 60 ms between pings: no ghost echoes), median of the
+// last 5, pings farther from it than the water can move rejected (5 s of that while pumping:
+// sensor fault); the pump turns ON only after 3 readings in a row below Lmin, OFF at once.
 //   no filling   the pump has run t_dry s (20) and the level rose less than rise_cm (1.0): dry
 //                suction, empty reservoir, blocked or broken pipe -> latched
 //   run time     ON-OFF: the pump has run t_maxon s (180) without reaching Lmax -> latched
@@ -58,7 +61,7 @@ const uint8_t PIN_TRIG = 8, PIN_ECHO = 7, PIN_RELAY = 4, PIN_PWM = 5, PIN_FLOAT 
 const uint16_t TS_MS = 100;
 const float D_MIN_CM = 4.0f;                              // HC-SR04 dead zone ~2 cm + margin
 const uint32_t MIN_ON_MS = 3000, MIN_OFF_MS = 15000;      // motor anti short-cycling (ON-OFF wiring): <= ~200 starts/h
-const uint8_t F_RUNNING = 1, F_SENSOR = 2, F_OVERFLOW = 4, F_DRY = 8, F_WATCHDOG = 16, F_BUTTON = 32, F_TIMEOUT = 64;
+const uint8_t F_RUNNING = 1, F_SENSOR = 2, F_OVERFLOW = 4, F_DRY = 8, F_WATCHDOG = 16, F_BUTTON = 32, F_TIMEOUT = 64, F_OVERFLOW_LATCH = 128;
 struct Guards { float tDry = 20, riseCm = 1.0f, tMaxOn = 180, Lover = 92; } grd;
 
 enum Mode : uint8_t { ONOFF, PCTRL, PICTRL };
@@ -85,7 +88,7 @@ static void loadCal() {
 
 bool running = false, hostControlled = false, pumpOn = false;
 uint8_t flags = 0, badPings = 0; uint32_t seq = 0, tStart = 0, lastTs = 0, lastHost = 0, fullSince = 0;
-uint32_t pumpSince = 0, dryWin = 0;                        // when the pump last switched; dry-run window start
+uint32_t pumpSince = 0, dryWin = 0; uint8_t lowCount = 0;                        // when the pump last switched; dry-run window start
 float level = NAN, levelCm = NAN, dist = NAN, levelAtFull = 0, levelAtWin = 0, integ = 0; int u = 0;
 
 static char hexDigit(uint8_t v) { return v < 10 ? '0' + v : 'A' + v - 10; }
@@ -122,8 +125,36 @@ static float pingCm() {
   return us ? us * cmPerUs : NAN;
 }
 
-static float medianOf3() {
-  float a = pingCm(); delay(10); float b = pingCm(); delay(10); float c = pingCm();
+// One ping per control step (100 ms): the HC-SR04 needs >= 60 ms between pings, or it hears the
+// previous ping still echoing around the tank (ghost readings, much too short). The level is the
+// median of the last NBUF accepted pings. A ping is accepted only within JUMP_CM + RATE_CM_S x
+// (time since the last accepted ping) of that median: the water cannot move faster than the pump
+// fills or the drain empties (~1.4 cm/s on the lab jar), so real motion is always tracked and an
+// echo from the walls never is, however consistent. After 5 s of rejections: while the pump runs,
+// the sensor cannot be trusted -> sensor fault (pump off); while idle, the buffer restarts.
+const uint8_t NBUF = 5, MAX_REJECTS = 50;
+const float JUMP_CM = 3.0f, RATE_CM_S = 2.0f;
+float dBuf[NBUF]; uint8_t nBuf = 0, iBuf = 0, rejects = 0;
+bool sensorDistrust = false;
+static float bufMedian() {
+  float t[NBUF]; for (uint8_t i = 0; i < nBuf; i++) t[i] = dBuf[i];
+  for (uint8_t i = 1; i < nBuf; i++) for (uint8_t j = i; j > 0 && t[j - 1] > t[j]; j--) { float x = t[j]; t[j] = t[j - 1]; t[j - 1] = x; }
+  return t[nBuf / 2];
+}
+static void bufReset() { nBuf = 0; iBuf = 0; rejects = 0; }
+static float filteredCm() {                  // NAN: no echo; otherwise the median distance
+  float d = pingCm();
+  if (isnan(d)) return NAN;
+  if (nBuf >= 3 && fabs(d - bufMedian()) > JUMP_CM + RATE_CM_S * 0.1f * (rejects + 1)) {
+    if (++rejects >= MAX_REJECTS) { sensorDistrust = true; bufReset(); return NAN; }
+    return bufMedian();
+  }
+  rejects = 0;
+  dBuf[iBuf] = d; iBuf = (iBuf + 1) % NBUF; if (nBuf < NBUF) nBuf++;
+  return bufMedian();
+}
+static float medianOf3() {                   // for $ZERO: three pings, 70 ms apart
+  float a = pingCm(); delay(70); float b = pingCm(); delay(70); float c = pingCm();
   if (isnan(a) || isnan(b) || isnan(c)) {
     if (!isnan(a) && !isnan(b)) return (a + b) / 2;
     return isnan(a) ? (isnan(b) ? c : b) : a;
@@ -191,9 +222,9 @@ static void handleLine(char *line) {
   }
   if (!strcmp(t, "SET")) { if (nt == 3) { cfg.setpoint = min(atof(tok[2]), grd.Lover - 5); ack(t); } else err(t, 4, "fields"); return; }
   if (!strcmp(t, "RUN")) {
-    if (flags & (F_DRY | F_SENSOR | F_TIMEOUT)) { err(t, 6, "fault latched: STOP first"); return; }
+    if (flags & (F_DRY | F_SENSOR | F_TIMEOUT | F_OVERFLOW_LATCH)) { err(t, 6, "fault latched: STOP first"); return; }
     if (!calibrated) { err(t, 12, "not calibrated: $ZERO with the tank empty, or $CAL"); return; }
-    running = true; hostControlled = true; seq = 0; tStart = millis(); integ = 0; fullSince = 0; dryWin = 0; ack(t); return;
+    running = true; hostControlled = true; seq = 0; tStart = millis(); integ = 0; fullSince = 0; dryWin = 0; lowCount = 0; ack(t); return;
   }
   if (!strcmp(t, "STOP") || !strcmp(t, "ESTOP")) { stopAll(); flags = 0; ack(t); return; }
   err(t, 7, "unknown");
@@ -213,15 +244,20 @@ static void pollHost() {
 static void fault(uint8_t f, int code, const char *txt) { stopAll(); flags |= f; err("RUN", code, txt); }
 
 static void controlStep(uint32_t now) {
-  float d = medianOf3();
-  if (isnan(d)) { if (++badPings >= 5) { level = NAN; dist = NAN; if (running) { stopAll(); flags |= F_SENSOR; } } }
+  float d = filteredCm();
+  if (sensorDistrust) {                       // 5 s of readings the water could not produce
+    sensorDistrust = false;
+    if (running) { fault(F_SENSOR, 15, "the level readings jump more than the water can move: check the sensor's view"); return; }
+  }
+  if (isnan(d)) { if (++badPings >= 5) { level = NAN; dist = NAN; bufReset(); if (running) { stopAll(); flags |= F_SENSOR; } } }
   else { badPings = 0; dist = d; levelCm = sensorToFloor - d; level = 100.0f * levelCm / fullHeight; }
   if (!running || isnan(level)) { pump(0); return; }
 
   int duty = 0; float e = cfg.setpoint - level;
   switch (cfg.mode) {
-    case ONOFF:
-      if (level < cfg.Lmin) duty = 255; else if (level > cfg.Lmax) duty = 0; else duty = pumpOn ? 255 : 0;
+    case ONOFF:                              // ON needs 3 readings in a row below Lmin; OFF is immediate
+      lowCount = (level < cfg.Lmin) ? min(lowCount + 1, 10) : 0;
+      if (lowCount >= 3) duty = 255; else if (level > cfg.Lmax) duty = 0; else duty = pumpOn ? 255 : 0;
       break;
     case PCTRL: duty = constrain((int)lround(cfg.Kp * e), 0, 255); break;
     case PICTRL: {                                   // same clamping anti-windup as the MATLAB model
@@ -241,8 +277,11 @@ static void controlStep(uint32_t now) {
   if (!pumpOn && duty > 0 && now - pumpSince < MIN_OFF_MS) duty = 0;
 #endif
   // overflow: above the limit, inside the sensor's dead zone, or the float switch
-  if (level > grd.Lover || dist < D_MIN_CM || digitalRead(PIN_FLOAT) == LOW) { duty = 0; flags |= F_OVERFLOW; }
-  else flags &= ~F_OVERFLOW;
+  if (level > grd.Lover || dist < D_MIN_CM || digitalRead(PIN_FLOAT) == LOW) {
+    // above the limit with the pump running means the sensing or the control failed: latch
+    if (pumpOn) { fault(F_OVERFLOW | F_OVERFLOW_LATCH, 14, "overflow limit reached with the pump on: check the sensor and the settings"); return; }
+    duty = 0; flags |= F_OVERFLOW;
+  } else flags &= ~F_OVERFLOW;
   // no filling: over each t_dry window with the pump on, the level must rise rise_cm
   bool fullOn = PUMP_PWM ? (duty >= 200 && level < ((cfg.mode == ONOFF) ? cfg.Lmax : cfg.setpoint) - 5.0f) : (duty > 0 && pumpOn);
   if (fullOn) {
@@ -294,7 +333,7 @@ void loop() {
     tBtn = now; lastBtn = b;
     if (b == LOW) {
       if (running) { stopAll(); flags |= F_BUTTON; }
-      else if (!(flags & (F_DRY | F_SENSOR | F_TIMEOUT)) && calibrated) { running = true; hostControlled = false; tStart = now; seq = 0; integ = 0; flags = 0; dryWin = 0; }
+      else if (!(flags & (F_DRY | F_SENSOR | F_TIMEOUT | F_OVERFLOW_LATCH)) && calibrated) { running = true; hostControlled = false; tStart = now; seq = 0; integ = 0; flags = 0; dryWin = 0; }
       else flags = 0;
     }
   }

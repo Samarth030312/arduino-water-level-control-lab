@@ -1,0 +1,5 @@
+17:54:20  connected on /dev/ttyACM0; geometry: sensor 0.396 m above the floor, 100 % = 0.200 m, 0.240 x 0.240 m, drain 8.0 mm, air 20 C
+17:54:40  idle 20 s (pump off): 192 readings, level -7.73 cm mean, 0.22 cm std, -8.30..-7.40 cm (firmware geometry until the run sends ours)
+17:54:43  RUN on-off 30-80 % for 300 s
+17:59:43  DONE 298 s  WATER-R0001_20261026-175940_W2 [ABORTED: board unplugged]
+17:59:43  session finished
