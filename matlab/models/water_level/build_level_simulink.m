@@ -83,7 +83,16 @@ function mdl = build_level_simulink(outDir)
               '2: PI / P (Ki = 0). Tank and pump parameters ASSUMED. Set them with run_level_simulink(cfg).'];
     n.Position = [40 260 900 290];
     if ~exist(outDir, 'dir'), mkdir(outDir); end
-    save_system(mdl, fullfile(outDir, [mdl '.slx']));
+    % saved in the oldest release this lab supports (R2023b), so every supported MATLAB opens it
+    target = fullfile(outDir, [mdl '.slx']);
+    if isMATLABReleaseOlderThan('R2024a')
+        save_system(mdl, target);
+    else
+        tmp = tempname; mkdir(tmp); tc = onCleanup(@() rmdir(tmp, 's'));
+        save_system(mdl, fullfile(tmp, [mdl '.slx']));
+        if isfile(target), delete(target); end
+        Simulink.exportToVersion(mdl, target, 'R2023b');
+    end
 end
 
 function setVars(mdl, w)
